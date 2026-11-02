@@ -20,6 +20,7 @@ class Exercise {
     this.mode = '',
     this.aliases = const [],
     this.kind = '',
+    this.externalVideoUrl = '',
   });
   final String id;
   final String name;
@@ -32,6 +33,7 @@ class Exercise {
   final String mode;
   final List<String> aliases;
   final String kind;
+  final String externalVideoUrl;
 
   Exercise copyWith({
     String? name,
@@ -43,6 +45,7 @@ class Exercise {
     String? mode,
     List<String>? aliases,
     String? kind,
+    String? externalVideoUrl,
   }) =>
       Exercise(
         id: id,
@@ -56,6 +59,7 @@ class Exercise {
         mode: mode ?? this.mode,
         aliases: aliases ?? this.aliases,
         kind: kind ?? this.kind,
+        externalVideoUrl: externalVideoUrl ?? this.externalVideoUrl,
       );
 
   Map<String, dynamic> toJson() => {
@@ -69,6 +73,7 @@ class Exercise {
         if (mode.isNotEmpty) 'k': mode,
         if (aliases.isNotEmpty) 'a': aliases,
         if (kind.isNotEmpty) 'ty': kind,
+        if (externalVideoUrl.isNotEmpty) 'url': externalVideoUrl,
       };
   factory Exercise.fromJson(Map<String, dynamic> j) => Exercise(
         id: j['id'] as String,
@@ -82,6 +87,7 @@ class Exercise {
         mode: kExerciseModeIds.contains(j['k']) ? j['k'] as String : '',
         aliases: ((j['a'] as List?) ?? const []).whereType<String>().toList(),
         kind: kExerciseKinds.contains(j['ty']) ? j['ty'] as String : '',
+        externalVideoUrl: (j['url'] as String?) ?? '',
       );
 }
 

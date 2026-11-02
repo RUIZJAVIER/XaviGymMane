@@ -1,0 +1,482 @@
+import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
+
+import '../l10n/l10n.dart';
+import '../models/workout.dart';
+import '../services/ai_client.dart';
+import '../services/plan_share.dart';
+import '../state/fit_state.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
+import '../widgets/liquid_notch.dart';
+import '../widgets/ui_kit.dart';
+
+class _Message {
+  _Message({required this.role, required this.text, this.routines = const []});
+  final String role;
+  final String text;
+  final List<PlanRoutine> routines;
+}
+
+class AiAssistantScreen extends StatefulWidget {
+  const AiAssistantScreen({super.key});
+
+  @override
+  State<AiAssistantScreen> createState() => _AiAssistantScreenState();
+}
+
+class _AiAssistantScreenState extends State<AiAssistantScreen> {
+  final TextEditingController _input = TextEditingController();
+  final ScrollController _scroll = ScrollController();
+  final List<_Message> _messages = [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final place = fit.activePlace;
+    final days = place?.targetDaysPerWeek ?? 3;
+    final placeName = place?.name ?? 'General';
+    _messages.add(
+      _Message(
+        role: 'assistant',
+        text: '¡Hola! Soy tu asistente de entrenamiento en GymMane.\n\n'
+            '📍 Lugar activo: $placeName\n'
+            '📅 Meta: $days días/semana (Frecuencia 2)\n'
+            '🎒 Equipamiento: ${fit.gearHere.join(', ')}\n\n'
+            '¿Qué deseas entrenar hoy o qué rutina te gustaría diseñar?',
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  String _buildSystemPrompt() {
+    final place = fit.activePlace;
+    final days = place?.targetDaysPerWeek ?? 3;
+    final gear = fit.gearHere.join(', ');
+    final volRec = fit.volumeRecommendation(days);
+
+    return '''Eres el Asistente Experto de Entrenamiento y Sobrecarga Progresiva de GymMane.
+Contexto actual del usuario:
+- Lugar: ${place?.name ?? 'Sin lugar activo'}
+- Días disponibles por semana: $days días
+- Equipamiento disponible: $gear
+- Pautas de volumen recomendadas:
+$volRec
+
+Directrices:
+1. Responde de forma concisa, motivadora y profesional en español.
+2. Si el usuario solicita o requiere diseñar o ajustar una rutina o entrenamiento, debes incluir al final de tu respuesta un bloque de código estrictamente formateado en JSON con la rutina diseñada.
+3. Formato del bloque JSON para rutinas compatibles con GymMane:
+```json
+{
+  "name": "Nombre de la Rutina",
+  "days": [1, 3, 5],
+  "exercises": [
+    {
+      "name": "Nombre del Ejercicio",
+      "sets": 3,
+      "reps": 10
+    }
+  ]
+}
+```
+Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Viernes, 6=Sábado, 7=Domingo). Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
+  }
+
+  Future<void> _send() async {
+    final text = _input.text.trim();
+    if (text.isEmpty || _loading) return;
+
+    _input.clear();
+    setState(() {
+      _messages.add(_Message(role: 'user', text: text));
+      _loading = true;
+    });
+    _scrollToBottom();
+
+    try {
+      final history = [
+        for (final m in _messages)
+          if (m.role == 'user' || m.role == 'assistant')
+            {'role': m.role, 'content': m.text},
+      ];
+
+      final reply = await AiClient.instance.chatCompletion(
+        messages: history,
+        systemPrompt: _buildSystemPrompt(),
+      );
+
+      final parsed = _extractRoutines(reply);
+
+      if (mounted) {
+        setState(() {
+          _messages.add(_Message(role: 'assistant', text: reply, routines: parsed));
+          _loading = false;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.add(_Message(
+            role: 'assistant',
+            text: '⚠️ No se pudo conectar con la IA:\n$e\n\nVerifica tu configuración pulsando el botón de engranaje arriba a la derecha.',
+          ));
+          _loading = false;
+        });
+        _scrollToBottom();
+      }
+    }
+  }
+
+  List<PlanRoutine> _extractRoutines(String text) {
+    try {
+      final codeBlock = RegExp(r'```(?:json)?\s*([\s\S]*?)\s*```');
+      final match = codeBlock.firstMatch(text);
+      final jsonCandidate = match != null ? match.group(1)! : text;
+      final parsed = parsePlan(jsonCandidate);
+      return parsed.where((p) => p.items.isNotEmpty).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void _applyRoutine(List<PlanRoutine> routines) {
+    final gc = context.gc;
+    final res = fit.applyPlan(routines, schedule: true);
+    showNotchToast(
+      context,
+      res.routines > 0 ? t.routinesAdded(res.routines) : t.nothingToImport,
+      subtitle: res.routines > 0 ? t.exerciseCount(res.added) : null,
+      icon: res.routines > 0 ? PhosphorIconsFill.checkCircle : PhosphorIconsFill.warningCircle,
+      accent: res.routines > 0 ? gc.sage : gc.warn,
+    );
+  }
+
+  void _openConfigSheet() {
+    final gc = context.gc;
+    final urlController = TextEditingController(text: fit.aiBaseUrl);
+    final keyController = TextEditingController(text: fit.aiApiKey);
+    final modelController = TextEditingController(text: fit.aiModel);
+
+    showAppSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        padding: sheetPad(sheetCtx).add(EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom)),
+        decoration: sheetDecoration(gc),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: 16),
+              Row(children: [
+                Icon(PhosphorIconsRegular.gear, size: 20, color: gc.ember),
+                const SizedBox(width: 8),
+                Text('Configuración de API IA',
+                    style: AppTheme.f(18, weight: FontWeight.w700, color: gc.text)),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                'Compatible con TokenHarbor, NVIDIA NIM, OpenAI, Groq, OpenRouter o cualquier API compatible.',
+                style: AppTheme.f(12, weight: FontWeight.w500, color: gc.textSecondary, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              Text('URL Base', style: AppTheme.s(11, weight: FontWeight.w700, color: gc.textTertiary)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: urlController,
+                style: AppTheme.f(13, weight: FontWeight.w500, color: gc.text),
+                cursorColor: gc.accent,
+                decoration: InputDecoration(
+                  hintText: 'https://api.openai.com/v1',
+                  hintStyle: AppTheme.f(13, color: gc.textTertiary),
+                  filled: true,
+                  fillColor: gc.bgRaised2,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('API Key', style: AppTheme.s(11, weight: FontWeight.w700, color: gc.textTertiary)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: keyController,
+                obscureText: true,
+                style: AppTheme.f(13, weight: FontWeight.w500, color: gc.text),
+                cursorColor: gc.accent,
+                decoration: InputDecoration(
+                  hintText: 'sk-...',
+                  hintStyle: AppTheme.f(13, color: gc.textTertiary),
+                  filled: true,
+                  fillColor: gc.bgRaised2,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('Modelo', style: AppTheme.s(11, weight: FontWeight.w700, color: gc.textTertiary)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: modelController,
+                style: AppTheme.f(13, weight: FontWeight.w500, color: gc.text),
+                cursorColor: gc.accent,
+                decoration: InputDecoration(
+                  hintText: 'gpt-4o-mini',
+                  hintStyle: AppTheme.f(13, color: gc.textTertiary),
+                  filled: true,
+                  fillColor: gc.bgRaised2,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text('PRESETS RÁPIDOS', style: AppTheme.s(10, weight: FontWeight.w700, color: gc.textTertiary, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _presetChip(gc, 'OpenAI', () {
+                    urlController.text = 'https://api.openai.com/v1';
+                    modelController.text = 'gpt-4o-mini';
+                  }),
+                  _presetChip(gc, 'NVIDIA NIM', () {
+                    urlController.text = 'https://integrate.api.nvidia.com/v1';
+                    modelController.text = 'meta/llama-3.1-70b-instruct';
+                  }),
+                  _presetChip(gc, 'TokenHarbor', () {
+                    urlController.text = 'https://api.tokenharbor.com/v1';
+                    modelController.text = 'gpt-4o-mini';
+                  }),
+                ],
+              ),
+              const SizedBox(height: 20),
+              PrimaryButton(
+                label: t.saveAction,
+                onTap: () {
+                  fit.saveAiConfig(
+                    baseUrl: urlController.text,
+                    apiKey: keyController.text,
+                    model: modelController.text,
+                  );
+                  Navigator.pop(sheetCtx);
+                  showNotchToast(context, 'Configuración de IA guardada', icon: PhosphorIconsFill.checkCircle, accent: gc.sage);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _presetChip(GymColors gc, String label, VoidCallback onTap) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: gc.bgRaised2, borderRadius: BorderRadius.circular(8)),
+        child: Text(label, style: AppTheme.s(11.5, weight: FontWeight.w600, color: gc.accent)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gc = context.gc;
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
+            child: ScreenHeader(
+              title: 'Asistente IA',
+              subtitle: fit.aiModel,
+              onBack: fit.backFromAiPlan,
+              titleSize: 22,
+              actions: [
+                RoundAction(
+                  label: 'Configurar IA',
+                  onTap: _openConfigSheet,
+                  child: Icon(PhosphorIconsRegular.gear, size: 17, color: gc.text),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              controller: _scroll,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              itemCount: _messages.length,
+              itemBuilder: (_, i) => _buildBubble(gc, _messages[i]),
+            ),
+          ),
+          if (_loading)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: gc.ember)),
+                  const SizedBox(width: 8),
+                  Text('Entrenador pensando...', style: AppTheme.f(12, weight: FontWeight.w500, color: gc.textSecondary)),
+                ],
+              ),
+            ),
+          Container(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, MediaQuery.paddingOf(context).bottom + 10),
+            decoration: BoxDecoration(
+              color: gc.bgRaised,
+              border: Border(top: BorderSide(color: gc.border.withValues(alpha: 0.5))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    style: AppTheme.f(13.5, weight: FontWeight.w500, color: gc.text),
+                    cursorColor: gc.accent,
+                    decoration: InputDecoration(
+                      hintText: 'Pide una rutina o consulta de sobrecarga...',
+                      hintStyle: AppTheme.f(13, color: gc.textTertiary),
+                      filled: true,
+                      fillColor: gc.bgRaised2,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _loading ? null : _send,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _loading ? gc.bgRaised2 : gc.ember,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(PhosphorIconsBold.paperPlaneTilt, size: 18, color: _loading ? gc.textTertiary : gc.onEmber),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBubble(GymColors gc, _Message msg) {
+    final isUser = msg.role == 'user';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isUser) ...[
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(color: gc.emberSoft, shape: BoxShape.circle),
+              child: Icon(PhosphorIconsRegular.sparkle, size: 16, color: gc.ember),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: isUser ? gc.emberSoft : gc.bgRaised,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: isUser ? gc.ember.withValues(alpha: 0.3) : gc.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SelectableText(
+                    msg.text,
+                    style: AppTheme.f(13.5,
+                        weight: FontWeight.w500,
+                        color: isUser ? gc.text : gc.text,
+                        height: 1.45),
+                  ),
+                  if (msg.routines.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    for (final r in msg.routines)
+                      Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: gc.bgRaised2, borderRadius: BorderRadius.circular(14)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Icon(PhosphorIconsRegular.barbell, size: 16, color: gc.ember),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(r.name.isEmpty ? 'Rutina Sugerida' : r.name,
+                                    style: AppTheme.f(14, weight: FontWeight.w700, color: gc.text)),
+                              ),
+                            ]),
+                            const SizedBox(height: 4),
+                            Text('${r.items.length} ejercicios planificados',
+                                style: AppTheme.f(11.5, weight: FontWeight.w500, color: gc.textSecondary)),
+                            const SizedBox(height: 10),
+                            PrimaryButton(
+                              label: 'Guardar en mi Planificador',
+                              bg: gc.ember,
+                              fg: gc.onEmber,
+                              onTap: () => _applyRoutine([r]),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (isUser) ...[
+            const SizedBox(width: 8),
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(color: gc.bgRaised2, shape: BoxShape.circle),
+              child: Icon(PhosphorIconsRegular.user, size: 16, color: gc.textSecondary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

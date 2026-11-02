@@ -5,6 +5,7 @@ class GymPlace {
     required this.equipment,
     this.plates = const {},
     this.bar,
+    this.targetDaysPerWeek = 3,
   });
 
   final String id;
@@ -12,6 +13,7 @@ class GymPlace {
   final Set<String> equipment;
   final Map<double, int> plates;
   final double? bar;
+  final int targetDaysPerWeek;
 
   GymPlace copyWith({
     String? name,
@@ -19,6 +21,7 @@ class GymPlace {
     Map<double, int>? plates,
     double? bar,
     bool clearBar = false,
+    int? targetDaysPerWeek,
   }) =>
       GymPlace(
         id: id,
@@ -26,6 +29,7 @@ class GymPlace {
         equipment: equipment ?? this.equipment,
         plates: plates ?? this.plates,
         bar: clearBar ? null : (bar ?? this.bar),
+        targetDaysPerWeek: targetDaysPerWeek ?? this.targetDaysPerWeek,
       );
 
   Map<String, dynamic> toJson() => {
@@ -34,6 +38,7 @@ class GymPlace {
         'e': equipment.toList(),
         if (plates.isNotEmpty) 'p': plates.map((k, v) => MapEntry(k.toString(), v)),
         if (bar != null) 'b': bar,
+        if (targetDaysPerWeek != 3) 'd': targetDaysPerWeek,
       };
 
   factory GymPlace.fromJson(Map<String, dynamic> j) => GymPlace(
@@ -43,5 +48,6 @@ class GymPlace {
         plates: ((j['p'] as Map?) ?? const {})
             .map((k, v) => MapEntry(double.parse(k as String), (v as num).toInt())),
         bar: (j['b'] as num?)?.toDouble(),
+        targetDaysPerWeek: (j['d'] as num?)?.toInt() ?? 3,
       );
 }

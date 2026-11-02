@@ -330,12 +330,17 @@ class FitState extends FitCore
 
   void _loadMedia(Map<String, dynamic> data, {Map<String, String>? restored}) {
     exerciseMedia.clear();
+    exerciseVideoUrls.clear();
     if (restored != null) {
       exerciseMedia.addAll(restored);
       return;
     }
     ((data['media'] as Map?) ?? {}).forEach((k, v) {
       if (v is String && v.isNotEmpty) exerciseMedia[k as String] = v;
+    });
+    exerciseVideoUrls.clear();
+    ((data['videoUrls'] as Map?) ?? {}).forEach((k, v) {
+      if (v is String && v.isNotEmpty) exerciseVideoUrls[k as String] = v;
     });
     for (final e in (data['custom'] as List?) ?? const []) {
       final legacy = (e as Map)['m'];
@@ -536,6 +541,7 @@ class FitState extends FitCore
         if (planMoves.isNotEmpty) 'planMoves': planMoves,
         'custom': customExercises.map((e) => e.toJson()).toList(),
         'media': exerciseMedia,
+        if (exerciseVideoUrls.isNotEmpty) 'videoUrls': exerciseVideoUrls,
         'exRest': exerciseRest,
         if (exerciseUnits.isNotEmpty) 'exUnits': exerciseUnits,
         'progress': progressStep,
@@ -644,6 +650,7 @@ class FitState extends FitCore
     planMoves.clear();
     customExercises.clear();
     exerciseMedia.clear();
+    exerciseVideoUrls.clear();
     repsOnly.clear();
     repsOnlyOff.clear();
     eachSide.clear();

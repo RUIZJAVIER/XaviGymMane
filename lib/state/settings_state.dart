@@ -72,6 +72,38 @@ mixin SettingsState on FitCore, ToolsState, LibraryState {
   int? alarmAskedAt;
   String language = 'en';
 
+  String get aiBaseUrl => Store.instance.note('ai_base_url')?.trim().isNotEmpty == true
+      ? Store.instance.note('ai_base_url')!.trim()
+      : 'https://api.openai.com/v1';
+
+  String get aiApiKey => Store.instance.note('ai_api_key')?.trim() ?? '';
+
+  String get aiModel => Store.instance.note('ai_model')?.trim().isNotEmpty == true
+      ? Store.instance.note('ai_model')!.trim()
+      : 'gpt-4o-mini';
+
+  void setAiBaseUrl(String url) {
+    Store.instance.setNote('ai_base_url', url.trim());
+    notifyListeners();
+  }
+
+  void setAiApiKey(String key) {
+    Store.instance.setNote('ai_api_key', key.trim());
+    notifyListeners();
+  }
+
+  void setAiModel(String model) {
+    Store.instance.setNote('ai_model', model.trim());
+    notifyListeners();
+  }
+
+  void saveAiConfig({String? baseUrl, String? apiKey, String? model}) {
+    if (baseUrl != null) Store.instance.setNote('ai_base_url', baseUrl.trim());
+    if (apiKey != null) Store.instance.setNote('ai_api_key', apiKey.trim());
+    if (model != null) Store.instance.setNote('ai_model', model.trim());
+    notifyListeners();
+  }
+
   Locale get locale => localeOf(language);
 
   void _adoptDeviceLanguage() =>

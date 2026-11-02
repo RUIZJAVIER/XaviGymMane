@@ -2,9 +2,16 @@ part of 'fit_state.dart';
 
 const List<String> kPlacePresets = ['gym', 'home', 'outdoors'];
 
+const Map<String, String> kHomeEquipment = {
+  'Dumbbell': 'Mancuernas fijas',
+  'Bench': 'Banco multiposición',
+  'Band': 'Bandas de resistencia',
+  'Weighted': 'Mochila con peso',
+};
+
 const Map<String, List<String>> kPlacePresetGear = {
   'gym': kEquipment,
-  'home': ['Bodyweight', 'Dumbbell', 'Kettlebell', 'Band', 'Weighted'],
+  'home': ['Bodyweight', 'Dumbbell', 'Bench', 'Band', 'Weighted', 'Kettlebell'],
   'outdoors': ['Bodyweight', 'Band'],
 };
 
@@ -21,12 +28,60 @@ mixin PlacesState on FitCore, LibraryState {
 
   Set<String> get gearHere {
     final place = activePlace;
-    return place == null ? kEquipment.toSet() : {...place.equipment, 'Bodyweight'};
+    if (place == null) return {...kEquipment, 'Bench'};
+    final gear = {...place.equipment, 'Bodyweight'};
+    if (gear.contains('Barbell') || gear.contains('Machine')) {
+      gear.add('Bench');
+    }
+    return gear;
+  }
+
+  static bool _requiresBench(Exercise ex) {
+    final lower = ex.name.toLowerCase();
+    return (lower.contains('bench') && !lower.contains('bodyweight')) ||
+        lower.contains('incline dumbbell') ||
+        lower.contains('decline dumbbell');
   }
 
   @override
-  bool fitsHere(Exercise ex) =>
-      activePlace == null || gearHere.contains(ex.equipment) || isCustom(ex.id);
+  bool fitsHere(Exercise ex) {
+    if (activePlace == null || isCustom(ex.id)) return true;
+    if (!gearHere.contains(ex.equipment)) return false;
+    if (_requiresBench(ex) && !gearHere.contains('Bench')) return false;
+    return true;
+  }
+
+  String volumeRecommendation(int days) {
+    switch (days) {
+      case 2:
+        return 'Objetivo: 14–16 series efectivas semanales por grupo muscular (Frecuencia 2).\n'
+            '• Esquema: 2 días Full Body (ej. Martes y Viernes o Lunes y Jueves).\n'
+            '• Volumen por sesión: ~7–8 series efectivas por grupo muscular en cada día de entreno.';
+      case 4:
+        return 'Objetivo: 14–16 series efectivas semanales por grupo muscular (Frecuencia 2).\n'
+            '• Esquema: 4 días Torso / Pierna (Upper / Lower x2).\n'
+            '• Volumen por sesión: 7–8 series efectivas por grupo muscular en cada uno de sus 2 días de estímulo semanal.';
+      case 3:
+      default:
+        return 'Objetivo: 14–16 series efectivas semanales por grupo muscular (Frecuencia 2).\n'
+            '• Esquema: 3 días Full Body alternado o Torso / Pierna / Full Body.\n'
+            '• Volumen por sesión: ~5 series efectivas por músculo por sesión (en Full Body) o 7–8 series por músculo en esquema híbrido Frecuencia 2.';
+    }
+  }
+
+  String get activePlaceVolumeRecommendation {
+    final days = activePlace?.targetDaysPerWeek ?? 3;
+    return volumeRecommendation(days);
+  }
+
+  void setPlaceTargetDays(String placeId, int days) {
+    final i = places.indexWhere((p) => p.id == placeId);
+    if (i < 0) return;
+    final clamped = days.clamp(2, 4);
+    places[i] = places[i].copyWith(targetDaysPerWeek: clamped);
+    _persist();
+    notifyListeners();
+  }
 
   int placeExerciseCount(GymPlace place) {
     final gear = {...place.equipment, 'Bodyweight'};

@@ -217,6 +217,53 @@ class PlacesScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text('DÍAS POR SEMANA & VOLUMEN (FRECUENCIA 2)',
+                    style: AppTheme.s(10,
+                        weight: FontWeight.w700, color: gc.textTertiary, letterSpacing: 1.5)),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    for (final d in [2, 3, 4]) ...[
+                      if (d > 2) const SizedBox(width: 8),
+                      Expanded(child: _daysChip(gc, place, d)),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: gc.bgRaised2,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(PhosphorIconsRegular.chartLineUp, size: 16, color: gc.ember),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          fit.volumeRecommendation(place.targetDaysPerWeek),
+                          style: AppTheme.s(11.5, weight: FontWeight.w500, color: gc.textSecondary, height: 1.45),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text('EQUIPAMIENTO CASERO',
+                    style: AppTheme.s(10,
+                        weight: FontWeight.w700, color: gc.textTertiary, letterSpacing: 1.5)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final entry in kHomeEquipment.entries)
+                      _gearChip(gc, place, entry.key, customLabel: entry.value),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 Text(t.placeGearLabel,
                     style: AppTheme.s(10,
                         weight: FontWeight.w700, color: gc.textTertiary, letterSpacing: 1.5)),
@@ -225,7 +272,7 @@ class PlacesScreen extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final gear in kEquipment)
+                    for (final gear in kEquipment.where((g) => g != 'Dumbbell' && g != 'Band' && g != 'Weighted'))
                       _gearChip(gc, place, gear),
                   ],
                 ),
@@ -267,9 +314,34 @@ class PlacesScreen extends StatelessWidget {
     );
   }
 
-  Widget _gearChip(GymColors gc, GymPlace place, String gear) {
+  Widget _daysChip(GymColors gc, GymPlace place, int days) {
+    final active = place.targetDaysPerWeek == days;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => fit.setPlaceTargetDays(place.id, days),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? gc.ember : gc.bgRaised2,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: active ? gc.ember : gc.border),
+        ),
+        child: Text(
+          '$days días / sem',
+          style: AppTheme.s(12,
+              weight: active ? FontWeight.w700 : FontWeight.w600,
+              color: active ? gc.onEmber : gc.textSecondary),
+        ),
+      ),
+    );
+  }
+
+  Widget _gearChip(GymColors gc, GymPlace place, String gear, {String? customLabel}) {
     final on = place.equipment.contains(gear) || gear == 'Bodyweight';
     final locked = gear == 'Bodyweight';
+    final label = customLabel ?? (gear == 'Bench' ? 'Banco multiposición' : t.equipment(gear));
 
     return Semantics(
       button: !locked,
@@ -290,7 +362,7 @@ class PlacesScreen extends StatelessWidget {
               Icon(on ? PhosphorIconsBold.check : PhosphorIconsBold.plus,
                   size: 10, color: on ? gc.ember : gc.textTertiary),
               const SizedBox(width: 6),
-              Text(t.equipment(gear),
+              Text(label,
                   style: AppTheme.s(12.5,
                       weight: FontWeight.w600, color: on ? gc.text : gc.textSecondary)),
             ],

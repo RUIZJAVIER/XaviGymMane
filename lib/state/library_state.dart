@@ -406,6 +406,42 @@ mixin LibraryState on FitCore {
     notifyListeners();
   }
 
+  String videoUrlFor(String id) {
+    if (exerciseVideoUrls[id] case final u? when u.isNotEmpty) return u;
+    final ex = exerciseById(id);
+    return ex?.externalVideoUrl ?? '';
+  }
+
+  void setExerciseVideoUrl(String id, String url) {
+    final clean = url.trim();
+    if (clean.isEmpty) {
+      exerciseVideoUrls.remove(id);
+    } else {
+      exerciseVideoUrls[id] = clean;
+    }
+    final i = customExercises.indexWhere((e) => e.id == id);
+    if (i >= 0) {
+      customExercises[i] = customExercises[i].copyWith(externalVideoUrl: clean);
+    }
+    _persist();
+    notifyListeners();
+  }
+
+  List<Exercise> alternativesWithActiveGear(Exercise ex, {int limit = 15}) {
+    final pool = allExercises
+        .where((e) => e.id != ex.id && e.primary == ex.primary && fitsHere(e))
+        .toList();
+    pool.sort((a, b) {
+      int rank(Exercise e) {
+        if (favorites[e.id] == true) return 0;
+        return e.equipment == 'Bodyweight' ? 1 : 2;
+      }
+
+      return rank(a).compareTo(rank(b));
+    });
+    return pool.take(limit).toList();
+  }
+
   bool isRepsOnly(String id) {
     if (repsOnly.contains(id)) return true;
     if (repsOnlyOff.contains(id)) return false;

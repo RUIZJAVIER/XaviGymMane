@@ -132,7 +132,7 @@ class SessionScreen extends StatelessWidget {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(_rowPad, 0, _rowPad, 10),
-                  child: _setsHeader(gc, mode, repsOnly, ex != null && fit.isEachSide(ex.id), exId: ex?.id),
+                  child: _setsHeader(context, gc, mode, repsOnly, ex != null && fit.isEachSide(ex.id), exId: ex?.id),
                 ),
                 for (int j = 0; j < (ex?.sets.length ?? 0); j++) ...[
                   _swipeSet(context, gc, exIdx, j, ex!.sets[j], locked,
@@ -405,7 +405,7 @@ class SessionScreen extends StatelessWidget {
           const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-            child: _setsHeader(gc, mode, repsOnly, fit.isEachSide(ex.id), list: true, exId: ex.id),
+            child: _setsHeader(context, gc, mode, repsOnly, fit.isEachSide(ex.id), list: true, exId: ex.id),
           ),
           for (var j = 0; j < ex.sets.length; j++)
             _swipeSet(context, gc, i, j, ex.sets[j], locked,
@@ -1100,7 +1100,7 @@ class SessionScreen extends StatelessWidget {
   static const _prevFlex = 6;
   static const _cellFlex = 5;
 
-  Widget _setsHeader(GymColors gc, String mode, bool repsOnly, bool sided, {bool list = false, String? exId}) {
+  Widget _setsHeader(BuildContext context, GymColors gc, String mode, bool repsOnly, bool sided, {bool list = false, String? exId}) {
     final s = AppTheme.f(11, weight: FontWeight.w600, color: gc.textSecondary, letterSpacing: 0.4);
 
     Widget label(String t) => FittedBox(
@@ -1111,7 +1111,14 @@ class SessionScreen extends StatelessWidget {
     final effort = _showsEffort(mode);
     final gap = effort ? _tightGap : _gap;
     return Row(children: [
-      SizedBox(width: _numCol, child: label(t.setCol)),
+      SizedBox(
+        width: _numCol,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _showOverloadGuide(context, gc),
+          child: label(t.setCol),
+        ),
+      ),
       if (list) ...[
         SizedBox(width: gap),
         Expanded(flex: _prevFlex, child: label(t.previousCol)),
@@ -1125,8 +1132,136 @@ class SessionScreen extends StatelessWidget {
         SizedBox(width: _effortCol, child: label(fit.usesRir ? 'RIR' : 'RPE')),
       ],
       SizedBox(width: gap),
-      const SizedBox(width: _checkCol),
+      SizedBox(
+        width: _checkCol,
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _showOverloadGuide(context, gc),
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(color: gc.bgRaised2, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Icon(PhosphorIconsBold.question, size: 10, color: gc.ember),
+            ),
+          ),
+        ),
+      ),
     ]);
+  }
+
+  void _showOverloadGuide(BuildContext context, GymColors gc) {
+    showAppSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        padding: sheetPad(sheetCtx).add(const EdgeInsets.only(bottom: 24)),
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheetCtx).height * 0.85),
+        decoration: sheetDecoration(gc),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(color: gc.emberSoft, shape: BoxShape.circle),
+                    child: Icon(PhosphorIconsRegular.trendUp, size: 20, color: gc.ember),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Sobrecarga con Peso Fijo en Casa',
+                            style: AppTheme.f(17, weight: FontWeight.w800, color: gc.text)),
+                        const SizedBox(height: 2),
+                        Text('Principios para progresar e inducir hipertrofia',
+                            style: AppTheme.f(12, weight: FontWeight.w500, color: gc.textSecondary)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _overloadCard(
+                gc,
+                icon: PhosphorIconsRegular.arrowsClockwise,
+                title: '1. Aumentar Repeticiones',
+                subtitle: 'Llega a 15–20 reps con técnica estricta',
+                desc: 'No te estanques en el rango tradicional de 8–12. Cuando el peso sea fijo, la tensión mecánica y el reclutamiento de fibras siguen aumentando si llevas tus series hasta 15–20 repeticiones cerca del fallo muscular.',
+              ),
+              const SizedBox(height: 10),
+              _overloadCard(
+                gc,
+                icon: PhosphorIconsRegular.timer,
+                title: '2. Tempo Controlado y Pausas',
+                subtitle: '3 a 4 seg en bajada + 1 seg de parada',
+                desc: 'Maximiza el tiempo bajo tensión (TUT): desciende en 3–4 segundos en la fase excéntrica, aguanta 1 segundo en el punto de máximo estiramiento y sube con potencia. Sentirás el doble de estímulo con el mismo peso.',
+              ),
+              const SizedBox(height: 10),
+              _overloadCard(
+                gc,
+                icon: PhosphorIconsRegular.backpack,
+                title: '3. Sumar Resistencia Casera',
+                subtitle: 'Bandas elásticas o mochila con peso',
+                desc: 'Añade una banda elástica para que el ejercicio sea más difícil al final del recorrido (curva de resistencia ascendente), o utiliza una mochila bien ajustada con libros o botellas de agua para añadir lastre progresivo.',
+              ),
+              const SizedBox(height: 10),
+              _overloadCard(
+                gc,
+                icon: PhosphorIconsRegular.fire,
+                title: '4. Dropsets y Menor Descanso',
+                subtitle: 'Fallo mecánico y continuar sin pausa',
+                desc: 'Al terminar tu serie al fallo con mancuernas, suelta el peso de inmediato y haz repeticiones adicionales con tu propio peso corporal o en variante más sencilla (ej. flexiones en suelo a inclinadas o zancadas sin carga).',
+              ),
+              const SizedBox(height: 22),
+              PrimaryButton(
+                label: '¡A entrenar!',
+                onTap: () => Navigator.pop(sheetCtx),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _overloadCard(GymColors gc,
+      {required IconData icon, required String title, required String subtitle, required String desc}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: gc.bgRaised2,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17, color: gc.ember),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(title, style: AppTheme.f(13.5, weight: FontWeight.w700, color: gc.text)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(subtitle, style: AppTheme.f(11.5, weight: FontWeight.w600, color: gc.ember)),
+          const SizedBox(height: 6),
+          Text(desc, style: AppTheme.f(12, weight: FontWeight.w500, color: gc.textSecondary, height: 1.4)),
+        ],
+      ),
+    );
   }
 
   Widget _liveBar(GymColors gc, bool locked) {

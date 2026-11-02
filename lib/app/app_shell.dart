@@ -9,6 +9,7 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 import '../l10n/l10n.dart';
 import '../screens/about_screen.dart';
+import '../screens/ai_assistant_screen.dart';
 import '../screens/ai_plan_screen.dart';
 import '../screens/compare_screen.dart';
 import '../screens/exercise_detail_screen.dart';
@@ -603,7 +604,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Single
       case 'routines':
         return RoutinesScreen();
       case 'ai-plan':
-        return AiPlanScreen();
+      case 'ai-assistant':
+        return const AiAssistantScreen();
       case 'routine-edit':
         return RoutineEditScreen(key: ValueKey(fit.activeRoutineId));
       case 'measures':

@@ -3,11 +3,13 @@ import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/l10n.dart';
 import '../models/exercise.dart';
 import '../models/progression.dart';
 import '../models/workout.dart';
+import '../services/ai_client.dart';
 import '../services/exercise_match.dart';
 import '../state/fit_state.dart';
 import '../theme/app_colors.dart';
@@ -36,6 +38,7 @@ class ExerciseDetailScreen extends StatefulWidget {
 
 class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   String get _exId => fit.activeExercise.id;
+  bool _loadingMsVideo = false;
 
   String _fmtDate(DateTime d) => t.shortDate(d);
 
@@ -191,6 +194,8 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                   ),
                   const SizedBox(height: 18),
                   _addToRoutineRow(context, gc, ex),
+                  const SizedBox(height: 10),
+                  _smartLinksSection(context, gc, ex),
                   const SizedBox(height: 20),
                   if (pr != null) ...[
                     Container(
@@ -555,6 +560,240 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
               Icon(PhosphorIconsRegular.plus, size: 16, color: gc.textTertiary),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _smartLinksSection(BuildContext context, GymColors gc, Exercise ex) {
+    final hasCustomUrl = fit.videoUrlFor(ex.id).isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Pressable(
+          onTap: _loadingMsVideo ? null : () => _openMuscleAndStrengthVideo(ex),
+          scale: 0.98,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            decoration: BoxDecoration(
+              color: gc.bgRaised,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                _rowIcon(gc, PhosphorIconsRegular.link, hasCustomUrl),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '🔗 Ver Video en Muscle & Strength',
+                        style: AppTheme.f(14, weight: FontWeight.w600, color: gc.text),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        hasCustomUrl ? 'Enlace personalizado guardado' : 'Búsqueda inteligente con IA',
+                        style: AppTheme.f(11.5, weight: FontWeight.w500, color: gc.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_loadingMsVideo)
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: gc.accent),
+                  )
+                else
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _editVideoUrl(context, ex),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(PhosphorIconsRegular.pencilSimple, size: 16, color: gc.textTertiary),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Pressable(
+          onTap: () => _showAlternativesSheet(context, ex),
+          scale: 0.98,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            decoration: BoxDecoration(
+              color: gc.bgRaised,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                _rowIcon(gc, PhosphorIconsRegular.arrowsLeftRight, false),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '🔄 Ver Alternativas con mi Equipo',
+                        style: AppTheme.f(14, weight: FontWeight.w600, color: gc.text),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Filtra por músculo principal y lugar activo',
+                        style: AppTheme.f(11.5, weight: FontWeight.w500, color: gc.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(PhosphorIconsRegular.caretRight, size: 16, color: gc.textTertiary),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openMuscleAndStrengthVideo(Exercise ex) async {
+    final customUrl = fit.videoUrlFor(ex.id).trim();
+    if (customUrl.isNotEmpty) {
+      final uri = Uri.tryParse(customUrl);
+      if (uri != null) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+    }
+
+    setState(() => _loadingMsVideo = true);
+    try {
+      final slug = await AiClient.instance.slugifyExercise(exerciseName(ex));
+      final uri = Uri.parse('https://www.muscleandstrength.com/exercises/$slug.html');
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingMsVideo = false);
+    }
+  }
+
+  void _showAlternativesSheet(BuildContext context, Exercise ex) {
+    final gc = context.gc;
+    final alts = fit.alternativesWithActiveGear(ex);
+    final placeName = fit.activePlace?.name ?? t.placeAll;
+
+    showAppSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        padding: sheetPad(sheetCtx),
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheetCtx).height * 0.8),
+        decoration: sheetDecoration(gc),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 18),
+            Text(
+              'Alternativas con mi equipo',
+              style: AppTheme.f(19, weight: FontWeight.w800, color: gc.text),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${muscleLabel(ex.primary)} · Lugar: $placeName',
+              style: AppTheme.f(12.5, weight: FontWeight.w500, color: gc.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            if (alts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'No se encontraron alternativas compatibles con el equipo configurado.',
+                    textAlign: TextAlign.center,
+                    style: AppTheme.f(13, weight: FontWeight.w500, color: gc.textTertiary),
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: alts.length,
+                  itemBuilder: (_, i) => _similarRow(gc, alts[i]),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _editVideoUrl(BuildContext context, Exercise ex) {
+    final gc = context.gc;
+    final controller = TextEditingController(text: fit.videoUrlFor(ex.id));
+    showAppSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        padding: sheetPad(sheetCtx).add(EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom)),
+        decoration: sheetDecoration(gc),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 16),
+            Text('Enlace de Video Externo',
+                style: AppTheme.f(18, weight: FontWeight.w700, color: gc.text)),
+            const SizedBox(height: 6),
+            Text('Si introduces una URL personalizada, el botón abrirá este enlace directamente.',
+                style: AppTheme.f(12.5, weight: FontWeight.w500, color: gc.textSecondary)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              style: AppTheme.f(13.5, weight: FontWeight.w500, color: gc.text),
+              cursorColor: gc.accent,
+              decoration: InputDecoration(
+                hintText: 'https://...',
+                hintStyle: AppTheme.f(13.5, color: gc.textTertiary),
+                filled: true,
+                fillColor: gc.bgRaised2,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                if (controller.text.isNotEmpty) ...[
+                  Expanded(
+                    child: GhostButton(
+                      label: t.delete,
+                      onTap: () {
+                        fit.setExerciseVideoUrl(ex.id, '');
+                        Navigator.pop(sheetCtx);
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: PrimaryButton(
+                    label: t.saveAction,
+                    onTap: () {
+                      fit.setExerciseVideoUrl(ex.id, controller.text);
+                      Navigator.pop(sheetCtx);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
