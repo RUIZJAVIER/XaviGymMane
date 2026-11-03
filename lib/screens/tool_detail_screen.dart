@@ -420,32 +420,34 @@ class ToolDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _warmupCard(GymColors gc) {
-    final sets = fit.warmupSets;
-    return SoftCard(
-      radius: 22,
-      borderColor: Colors.transparent,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        children: [
-          for (int i = 0; i < sets.length; i++)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                border: i < sets.length - 1 ? Border(bottom: BorderSide(color: gc.border)) : null,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('${sets[i].pct} · ${t.repCount(sets[i].reps)}', style: AppTheme.f(13, weight: FontWeight.w500, color: gc.textSecondary)),
-                  Text('${fmt(sets[i].weight)} ${fit.units}', style: AppTheme.f(15, weight: FontWeight.w700, color: gc.text)),
-                ],
-              ),
+  Widget _warmupCard(GymColors gc) => _warmupBreakdown(gc);
+}
+
+Widget _warmupBreakdown(GymColors gc) {
+  final sets = fit.warmupSets;
+  return SoftCard(
+    radius: 22,
+    borderColor: Colors.transparent,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Column(
+      children: [
+        for (int i = 0; i < sets.length; i++)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              border: i < sets.length - 1 ? Border(bottom: BorderSide(color: gc.border)) : null,
             ),
-        ],
-      ),
-    );
-  }
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('${sets[i].pct} · ${t.repCount(sets[i].reps)}', style: AppTheme.f(13, weight: FontWeight.w500, color: gc.textSecondary)),
+                Text('${fmt(sets[i].weight)} ${fit.units}', style: AppTheme.f(15, weight: FontWeight.w700, color: gc.text)),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
 }
 
 void showPlateSheet(BuildContext context, double displayTarget, {double? startBar}) {
@@ -513,6 +515,46 @@ void showPlateSheet(BuildContext context, double displayTarget, {double? startBa
                 Text(t.plateAchievable('${fmt(loadable)} ${fit.units}'),
                     style: AppTheme.f(12, weight: FontWeight.w500, color: gc.brass)),
               ],
+              const SizedBox(height: 18),
+              PrimaryButton(label: t.done, onTap: () => Navigator.of(sheet).pop()),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+
+void showWarmupSheet(BuildContext context, {double? target}) {
+  final gc = context.gc;
+  if (target != null) fit.bumpWarmupTarget(target - fit.warmupTarget);
+  showAppSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (sheet) => StatefulBuilder(
+      builder: (sheet, setSheet) {
+        final step = fit.fromDisplayWeight(fit.weightStep);
+        return Container(
+          padding: sheetPad(sheet),
+          decoration: sheetDecoration(gc),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: 16),
+              SheetTitle(t.toolTitle('warmup'), subtitle: t.toolHintWarmup),
+              const SizedBox(height: 18),
+              ToolRow(
+                label: t.workingWeight,
+                control: StepperControl(
+                  value: '${fit.weightValue(fit.warmupTarget)} ${fit.units}',
+                  onDec: () => setSheet(() => fit.bumpWarmupTarget(-step)),
+                  onInc: () => setSheet(() => fit.bumpWarmupTarget(step)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              _warmupBreakdown(gc),
               const SizedBox(height: 18),
               PrimaryButton(label: t.done, onTap: () => Navigator.of(sheet).pop()),
             ],

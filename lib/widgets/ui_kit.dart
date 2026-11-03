@@ -1104,3 +1104,47 @@ class PrimaryButton extends StatelessWidget {
     );
   }
 }
+
+class SecondaryButton extends StatelessWidget {
+  const SecondaryButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.height = 46,
+    this.loading = false,
+  });
+  final String label;
+  final VoidCallback onTap;
+  final double height;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final gc = context.gc;
+    return Pressable(
+      onTap: loading ? null : onTap,
+      child: Container(
+        width: double.infinity,
+        height: height,
+        decoration: BoxDecoration(color: gc.bgRaised2, borderRadius: BorderRadius.circular(100)),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: loading
+            ? Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: gc.accent),
+                ),
+              )
+            : Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(titleCase(label),
+                      maxLines: 1,
+                      style: AppTheme.f(14, weight: FontWeight.w700, color: gc.text, letterSpacing: 0.2)),
+                ),
+              ),
+      ),
+    );
+  }
+}

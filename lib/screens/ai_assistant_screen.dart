@@ -134,12 +134,12 @@ Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Vie
         });
         _scrollToBottom();
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         setState(() {
           _messages.add(_Message(
             role: 'assistant',
-            text: '⚠️ No se pudo conectar con la IA:\n$e\n\nVerifica tu configuración pulsando el botón de engranaje arriba a la derecha.',
+            text: '⚠️ No se pudo conectar con la IA. Revisa tu conexión, API Key o URL base.',
           ));
           _loading = false;
         });
@@ -169,6 +169,33 @@ Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Vie
       subtitle: res.routines > 0 ? t.exerciseCount(res.added) : null,
       icon: res.routines > 0 ? PhosphorIconsFill.checkCircle : PhosphorIconsFill.warningCircle,
       accent: res.routines > 0 ? gc.sage : gc.warn,
+    );
+  }
+
+  Future<void> _selectModel(BuildContext context, TextEditingController modelCtrl) async {
+    final gc = context.gc;
+    showNotchToast(context, 'Cargando modelos...', icon: PhosphorIconsRegular.cloudArrowDown);
+    final models = await AiClient.instance.fetchAvailableModels();
+    if (!context.mounted) return;
+    if (models.isEmpty) {
+      showNotchToast(context, 'Error al cargar modelos. Revisa tu API Key y URL.', accent: gc.warn);
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: gc.bgRaised,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        itemCount: models.length,
+        itemBuilder: (c, i) => ListTile(
+          title: Text(models[i], style: AppTheme.f(14, color: gc.text)),
+          onTap: () {
+            modelCtrl.text = models[i];
+            Navigator.pop(ctx);
+          },
+        ),
+      ),
     );
   }
 
@@ -239,18 +266,34 @@ Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Vie
               const SizedBox(height: 12),
               Text('Modelo', style: AppTheme.s(11, weight: FontWeight.w700, color: gc.textTertiary)),
               const SizedBox(height: 6),
-              TextField(
-                controller: modelController,
-                style: AppTheme.f(13, weight: FontWeight.w500, color: gc.text),
-                cursorColor: gc.accent,
-                decoration: InputDecoration(
-                  hintText: 'gpt-4o-mini',
-                  hintStyle: AppTheme.f(13, color: gc.textTertiary),
-                  filled: true,
-                  fillColor: gc.bgRaised2,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: modelController,
+                      style: AppTheme.f(13, weight: FontWeight.w500, color: gc.text),
+                      cursorColor: gc.accent,
+                      decoration: InputDecoration(
+                        hintText: 'gpt-4o-mini',
+                        hintStyle: AppTheme.f(13, color: gc.textTertiary),
+                        filled: true,
+                        fillColor: gc.bgRaised2,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _selectModel(context, modelController),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: gc.ember, borderRadius: BorderRadius.circular(14)),
+                      child: Icon(PhosphorIconsRegular.listMagnifyingGlass, size: 20, color: gc.onEmber),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 14),
               Text('PRESETS RÁPIDOS', style: AppTheme.s(10, weight: FontWeight.w700, color: gc.textTertiary, letterSpacing: 1.2)),

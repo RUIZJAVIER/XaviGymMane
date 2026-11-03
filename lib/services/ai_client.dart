@@ -133,6 +133,27 @@ class AiClient {
     }
   }
 
+  Future<List<String>> fetchAvailableModels() async {
+    final key = apiKey;
+    if (key.isEmpty) return [];
+    final currentBase = baseUrl.isNotEmpty ? baseUrl : defaultBaseUrl;
+    final endpoint = currentBase.endsWith('/') ? '${currentBase}models' : '$currentBase/models';
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+      final request = await client.getUrl(Uri.parse(endpoint));
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $key');
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        final List models = data['data'] ?? [];
+        return models.map((m) => m['id'].toString()).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
   static String _cleanSlug(String raw) {
     return raw
         .replaceAll(RegExp(r'''["'\[\]]'''), '')

@@ -55,6 +55,7 @@ class SessionScreen extends StatelessWidget {
     final ex = fit.currentExercise;
     final exIdx = s.currentIndex;
     final def = fit.exerciseById(ex?.id ?? '') ?? fit.allExercises.first;
+    final prev = ex == null ? const <LoggedSet>[] : fit.lastSetsFor(ex.id);
     final repsOnly = ex != null && fit.isRepsOnly(ex.id);
     final locked = fit.sessionLocked && !s.manual;
     final demo = ex == null ? 'off' : fit.demoSize;
@@ -136,7 +137,8 @@ class SessionScreen extends StatelessWidget {
                 ),
                 for (int j = 0; j < (ex?.sets.length ?? 0); j++) ...[
                   _swipeSet(context, gc, exIdx, j, ex!.sets[j], locked,
-                      _setRow(gc, exIdx, j, ex.sets[j], repsOnly, locked)),
+                      _setRow(gc, exIdx, j, ex.sets[j], repsOnly, locked,
+                          prev: j < prev.length ? prev[j] : null)),
                 ],
                 if (!repsOnly && mode.isEmpty && ex != null) _guard(locked, _plateRow(context, gc, ex)),
                 const SizedBox(height: 10),
@@ -374,6 +376,18 @@ class SessionScreen extends StatelessWidget {
                   ]),
                 ]),
               ),
+              Semantics(
+                button: true,
+                label: titleCase(t.tools),
+                child: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 44),
+                  tooltip: titleCase(t.tools),
+                  onPressed: () => _showExerciseCalculators(context, ex),
+                  icon: Icon(PhosphorIconsRegular.calculator, size: 19, color: gc.textSecondary),
+                ),
+              ),
               _guard(
                 locked,
                 Semantics(
@@ -541,6 +555,7 @@ class SessionScreen extends StatelessWidget {
     VoidCallback inc,
     double minW, {
     required void Function(BuildContext) onEdit,
+    bool pr = false,
   }) =>
       Builder(
         builder: (context) => GestureDetector(
@@ -553,10 +568,21 @@ class SessionScreen extends StatelessWidget {
                 height: 34,
                 alignment: Alignment.center,
                 padding: const EdgeInsets.symmetric(horizontal: 6),
-                decoration: BoxDecoration(color: gc.bgRaised2, borderRadius: BorderRadius.circular(10)),
+                decoration: BoxDecoration(
+                  color: pr ? gc.sageSoft : gc.bgRaised2,
+                  borderRadius: BorderRadius.circular(10),
+                  border: pr ? Border.all(color: gc.sage, width: 1.2) : null,
+                ),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: RollingText(value, style: AppTheme.f(15, weight: FontWeight.w700, color: gc.text)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (pr) ...[
+                      Icon(PhosphorIconsFill.fire, size: 11, color: gc.sage),
+                      const SizedBox(width: 3),
+                    ],
+                    RollingText(value,
+                        style: AppTheme.f(15, weight: FontWeight.w700, color: pr ? gc.sage : gc.text)),
+                  ]),
                 ),
               ),
             ),
@@ -804,8 +830,28 @@ class SessionScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
-        Text(ex == null ? '' : t.catalogName(ex.id, ex.name),
-            style: AppTheme.f(26, weight: FontWeight.w700, color: gc.text)),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(ex == null ? '' : t.catalogName(ex.id, ex.name),
+                  style: AppTheme.f(26, weight: FontWeight.w700, color: gc.text)),
+            ),
+            if (ex != null)
+              Semantics(
+                button: true,
+                label: titleCase(t.tools),
+                child: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                  tooltip: titleCase(t.tools),
+                  onPressed: () => _showExerciseCalculators(context, ex),
+                  icon: Icon(PhosphorIconsRegular.calculator, size: 20, color: gc.textSecondary),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 8),
         Row(children: [
           Container(
@@ -866,6 +912,58 @@ class SessionScreen extends StatelessWidget {
           if (fit.nextTargetLabel(ex.id) != null) _nextRow(gc, ex.id),
         ],
       ],
+    );
+  }
+
+  void _showExerciseCalculators(BuildContext context, SessionExercise ex) {
+    final gc = context.gc;
+    final def = fit.exerciseById(ex.id);
+    final next = ex.sets.isEmpty
+        ? null
+        : ex.sets.firstWhere((s) => !s.done, orElse: () => ex.sets.last);
+    final weightKg = next != null && next.weight > 0 ? next.weight : null;
+    showAppSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheet) => Container(
+        padding: sheetPad(sheet),
+        decoration: sheetDecoration(gc),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 16),
+            SheetTitle(titleCase(t.tools)),
+            const SizedBox(height: 14),
+            OptionGroup([
+              OptionItem(
+                t.toolTitle('plate'),
+                icon: PhosphorIconsRegular.circlesThree,
+                detail: t.toolDesc('plate'),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  showPlateSheet(
+                    context,
+                    fit.toDisplayWeight(weightKg ?? fit.plateTarget),
+                    startBar: def == null ? null : fit.barFor(ex.id, equipment: def.equipment),
+                  );
+                },
+              ),
+              OptionItem(
+                t.toolTitle('warmup'),
+                icon: PhosphorIconsRegular.fire,
+                detail: t.toolDesc('warmup'),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  showWarmupSheet(context, target: weightKg);
+                },
+              ),
+            ]),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1452,16 +1550,21 @@ class SessionScreen extends StatelessWidget {
         ),
       );
 
-  List<Widget> _cells(GymColors gc, int exIdx, int j, SessionSet st, String mode, bool repsOnly, {bool list = false}) {
+  List<Widget> _cells(GymColors gc, int exIdx, int j, SessionSet st, String mode, bool repsOnly,
+      {bool list = false, bool pr = false}) {
     final cardio = mode == 'cardio';
-    Widget Function(
+    Widget step(
       GymColors gc,
       String value,
       VoidCallback dec,
       VoidCallback inc,
       double minW, {
       required void Function(BuildContext) onEdit,
-    }) step = list ? _pillCell : _miniStepper;
+      bool pr = false,
+    }) =>
+        list
+            ? _pillCell(gc, value, dec, inc, minW, onEdit: onEdit, pr: pr)
+            : _miniStepper(gc, value, dec, inc, minW, onEdit: onEdit, pr: pr);
     Widget reps() => step(
           gc,
           '${st.reps}',
@@ -1477,6 +1580,7 @@ class SessionScreen extends StatelessWidget {
             majorEvery: 5,
             onSave: (v) => fit.setSessionReps(exIdx, j, v.round()),
           ),
+          pr: repsOnly && pr,
         );
     final exId = fit.session!.exercises[exIdx].id;
     Widget weight() => step(
@@ -1495,6 +1599,7 @@ class SessionScreen extends StatelessWidget {
             unit: fit.unitsFor(exId),
             onSave: (v) => fit.setSessionWeightShown(exIdx, j, v),
           ),
+          pr: !repsOnly && pr,
         );
     Widget time() => step(
           gc,
@@ -1554,6 +1659,13 @@ class SessionScreen extends StatelessWidget {
         _ => [t.repsCol, if (!repsOnly) t.weightCol(unit.toUpperCase())],
       };
 
+  bool _isOverloadPR(SessionSet st, LoggedSet? prev, String mode, bool repsOnly) {
+    if (prev == null || mode.isNotEmpty || !st.counts || st.reps <= 0) return false;
+    final weight = repsOnly ? prev.weight : st.weight;
+    if (!repsOnly && weight <= 0) return false;
+    return weight > prev.weight || (weight == prev.weight && st.reps > prev.reps);
+  }
+
   Widget _setRow(GymColors gc, int exIdx, int j, SessionSet st, bool repsOnly, bool locked,
       {bool list = false, LoggedSet? prev}) {
     final mode = fit.modeOf(fit.session?.exercises[exIdx].id ?? '');
@@ -1601,7 +1713,8 @@ class SessionScreen extends StatelessWidget {
           SizedBox(width: gap),
           Expanded(flex: _prevFlex, child: _prevCell(gc, exIdx, j, prev, locked)),
         ],
-        for (final cell in _cells(gc, exIdx, j, st, mode, repsOnly, list: list)) ...[
+        for (final cell in _cells(gc, exIdx, j, st, mode, repsOnly,
+            list: list, pr: _isOverloadPR(st, prev, mode, repsOnly))) ...[
           SizedBox(width: gap),
           Expanded(flex: list ? _cellFlex : 1, child: cell),
         ],
@@ -1932,6 +2045,7 @@ class SessionScreen extends StatelessWidget {
     VoidCallback inc,
     double minW, {
     required void Function(BuildContext) onEdit,
+    bool pr = false,
   }) {
     Widget b(String g, String semantic, VoidCallback t) => Semantics(
           button: true,
@@ -1967,10 +2081,23 @@ class SessionScreen extends StatelessWidget {
             onTap: () => onEdit(context),
             child: Container(
               constraints: BoxConstraints(minWidth: minW),
-              padding: const EdgeInsets.symmetric(vertical: 4),
+              padding: EdgeInsets.symmetric(vertical: 4, horizontal: pr ? 4 : 0),
               alignment: Alignment.center,
-              child: RollingText(value,
-                  style: AppTheme.f(15, weight: FontWeight.w700, color: gc.text)),
+              decoration: pr
+                  ? BoxDecoration(
+                      color: gc.sageSoft,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: gc.sage, width: 1),
+                    )
+                  : null,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (pr) ...[
+                  Icon(PhosphorIconsFill.fire, size: 11, color: gc.sage),
+                  const SizedBox(width: 2),
+                ],
+                RollingText(value,
+                    style: AppTheme.f(15, weight: FontWeight.w700, color: pr ? gc.sage : gc.text)),
+              ]),
             ),
           ),
           const SizedBox(width: 3),

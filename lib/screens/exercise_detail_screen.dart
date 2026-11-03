@@ -656,11 +656,31 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   }
 
   Future<void> _openMuscleAndStrengthVideo(Exercise ex) async {
+    final gc = context.gc;
     final customUrl = fit.videoUrlFor(ex.id).trim();
     if (customUrl.isNotEmpty) {
       final uri = Uri.tryParse(customUrl);
       if (uri != null) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        try {
+          final ok = await launchUrl(uri);
+          if (!ok && mounted) {
+            showNotchToast(
+              context,
+              'No se pudo abrir el enlace. Revisa la URL.',
+              icon: PhosphorIconsFill.warningCircle,
+              accent: gc.warn,
+            );
+          }
+        } catch (_) {
+          if (mounted) {
+            showNotchToast(
+              context,
+              'No se pudo abrir el enlace. Revisa la URL.',
+              icon: PhosphorIconsFill.warningCircle,
+              accent: gc.warn,
+            );
+          }
+        }
         return;
       }
     }
@@ -669,8 +689,24 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
     try {
       final slug = await AiClient.instance.slugifyExercise(exerciseName(ex));
       final uri = Uri.parse('https://www.muscleandstrength.com/exercises/$slug.html');
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final ok = await launchUrl(uri);
+      if (!ok && mounted) {
+        showNotchToast(
+          context,
+          'No se pudo abrir el video. Revisa tu conexión o la URL.',
+          icon: PhosphorIconsFill.warningCircle,
+          accent: gc.warn,
+        );
+      }
     } catch (_) {
+      if (mounted) {
+        showNotchToast(
+          context,
+          'No se pudo abrir el video. Revisa tu conexión o la URL.',
+          icon: PhosphorIconsFill.warningCircle,
+          accent: gc.warn,
+        );
+      }
     } finally {
       if (mounted) setState(() => _loadingMsVideo = false);
     }
@@ -733,11 +769,13 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   void _editVideoUrl(BuildContext context, Exercise ex) {
     final gc = context.gc;
     final controller = TextEditingController(text: fit.videoUrlFor(ex.id));
+    bool _generatingLink = false;
     showAppSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => Container(
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setModalState) => Container(
         padding: sheetPad(sheetCtx).add(EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom)),
         decoration: sheetDecoration(gc),
         child: Column(
@@ -766,6 +804,20 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
               ),
             ),
             const SizedBox(height: 14),
+            SecondaryButton(
+              label: 'Generar con IA',
+              loading: _generatingLink,
+              onTap: () async {
+                setModalState(() => _generatingLink = true);
+                try {
+                  final slug = await AiClient.instance.slugifyExercise(ex.name);
+                  controller.text = 'https://www.muscleandstrength.com/exercises/$slug.html';
+                } finally {
+                  setModalState(() => _generatingLink = false);
+                }
+              },
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 if (controller.text.isNotEmpty) ...[
@@ -796,6 +848,7 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
