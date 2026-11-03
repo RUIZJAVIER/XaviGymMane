@@ -274,7 +274,7 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
                     onTap: () => _selectModel(context, modelController),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(color: gc.bgRaised3, borderRadius: BorderRadius.circular(12), border: Border.all(color: gc.border)),
+                      decoration: BoxDecoration(color: gc.bgRaised2, borderRadius: BorderRadius.circular(12), border: Border.all(color: gc.border)),
                       child: Text('Obtener Modelos', style: AppTheme.f(13, weight: FontWeight.w600, color: gc.text)),
                     ),
                   ),
