@@ -158,6 +158,23 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
     );
   }
 
+  String _getFormattedRoutines() {
+    final list = fit.activeRoutines.isNotEmpty ? fit.activeRoutines : fit.routines;
+    if (list.isEmpty) {
+      return 'No tengo rutinas guardadas aún.';
+    }
+    final buffer = StringBuffer('Por favor analiza mis rutinas actuales:\n\n');
+    for (final r in list) {
+      final names = [
+        for (final id in r.exerciseIds)
+          fit.exerciseById(id)?.name ?? id,
+      ];
+      final exText = names.isNotEmpty ? names.join(', ') : 'Sin ejercicios';
+      buffer.writeln('- ${r.name}: $exText');
+    }
+    return buffer.toString().trimRight();
+  }
+
   Future<void> _selectModel(BuildContext context, TextEditingController modelCtrl) async {
     final gc = context.gc;
     showNotchToast(context, 'Cargando modelos...', icon: PhosphorIconsRegular.cloudArrowDown);
@@ -405,6 +422,31 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
                 ],
               ),
             ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            alignment: Alignment.centerLeft,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                _input.text = _getFormattedRoutines();
+                _input.selection = TextSelection.fromPosition(
+                  TextPosition(offset: _input.text.length),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: gc.emberSoft,
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(color: gc.ember.withValues(alpha: 0.2)),
+                ),
+                child: Text(
+                  '📋 Adjuntar mis rutinas para analizar',
+                  style: AppTheme.f(12, weight: FontWeight.w600, color: gc.ember),
+                ),
+              ),
+            ),
+          ),
           Container(
             padding: EdgeInsets.fromLTRB(16, 8, 16, MediaQuery.paddingOf(context).bottom + 10),
             decoration: BoxDecoration(
