@@ -8,6 +8,7 @@ import '../services/plan_share.dart';
 import '../state/fit_state.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_sheet.dart';
 import '../widgets/liquid_notch.dart';
 import '../widgets/ui_kit.dart';
 
@@ -275,7 +276,7 @@ Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Vie
               ),
               const SizedBox(height: 20),
               PrimaryButton(
-                label: t.saveAction,
+                label: 'Guardar',
                 onTap: () {
                   fit.saveAiConfig(
                     baseUrl: urlController.text,

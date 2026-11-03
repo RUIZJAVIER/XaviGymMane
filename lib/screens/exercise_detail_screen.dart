@@ -771,7 +771,8 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                 if (controller.text.isNotEmpty) ...[
                   Expanded(
                     child: GhostButton(
-                      label: t.delete,
+                      label: 'Eliminar',
+                      icon: PhosphorIconsRegular.trash, // <- Ícono añadido
                       onTap: () {
                         fit.setExerciseVideoUrl(ex.id, '');
                         Navigator.pop(sheetCtx);
@@ -783,7 +784,7 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                 ],
                 Expanded(
                   child: PrimaryButton(
-                    label: t.saveAction,
+                    label: 'Guardar',
                     onTap: () {
                       fit.setExerciseVideoUrl(ex.id, controller.text);
                       Navigator.pop(sheetCtx);

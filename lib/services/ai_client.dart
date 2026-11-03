@@ -135,7 +135,7 @@ class AiClient {
 
   static String _cleanSlug(String raw) {
     return raw
-        .replaceAll(RegExp(r'[`"\'\[\]]'), '')
+        .replaceAll(RegExp(r'''[`"'\[\]]'''), '')
         .trim()
         .toLowerCase()
         .replaceAll(RegExp(r'\s+'), '-')
