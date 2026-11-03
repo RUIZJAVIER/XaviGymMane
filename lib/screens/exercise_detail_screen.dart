@@ -772,7 +772,7 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                   Expanded(
                     child: GhostButton(
                       label: 'Eliminar',
-                      icon: PhosphorIconsRegular.trash, // <- Ícono añadido
+                      icon: PhosphorIconsRegular.trash,
                       onTap: () {
                         fit.setExerciseVideoUrl(ex.id, '');
                         Navigator.pop(sheetCtx);
