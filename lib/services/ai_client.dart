@@ -9,6 +9,10 @@ class AiClient {
 
   static const String defaultBaseUrl = 'https://api.openai.com/v1';
   static const String defaultModel = 'gpt-4o-mini';
+  static const String defaultSystemPrompt = '''Eres el Asistente Experto de Entrenamiento y Sobrecarga Progresiva de GymMane.
+Directrices:
+1. Responde de forma concisa, motivadora y profesional en español.
+2. Si el usuario pide crear o diseñar una rutina, responde con tu explicación y SIEMPRE incluye al final un bloque oculto con este formato exacto: <routine>{"name": "Nombre", "exercises": ["ejercicio 1", "ejercicio 2"]}</routine>. Los nombres de los ejercicios deben coincidir con ejercicios clásicos.''';
 
   String get baseUrl => Store.instance.note('ai_base_url')?.trim() ?? defaultBaseUrl;
   String get apiKey => Store.instance.note('ai_api_key')?.trim() ?? '';
@@ -102,9 +106,13 @@ class AiClient {
     request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $key');
 
+    final effectiveSystemPrompt = (systemPrompt != null && systemPrompt.isNotEmpty)
+        ? systemPrompt
+        : defaultSystemPrompt;
+
     final fullMessages = <Map<String, String>>[
-      if (systemPrompt != null && systemPrompt.isNotEmpty)
-        {'role': 'system', 'content': systemPrompt},
+      if (effectiveSystemPrompt.isNotEmpty)
+        {'role': 'system', 'content': effectiveSystemPrompt},
       ...messages,
     ];
 
@@ -149,8 +157,13 @@ class AiClient {
         final data = jsonDecode(body);
         final List models = data['data'] ?? [];
         return models.map((m) => m['id'].toString()).toList();
+      } else {
+        final body = await response.transform(utf8.decoder).join();
+        print('TokenHarbor Error HTTP: ${response.statusCode} - $body');
       }
-    } catch (_) {}
+    } catch (e) {
+      print('TokenHarbor Error Exception: $e');
+    }
     return [];
   }
 

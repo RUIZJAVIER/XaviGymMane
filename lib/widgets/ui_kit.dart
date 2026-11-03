@@ -1064,6 +1064,7 @@ class PrimaryButton extends StatelessWidget {
     this.fg,
     this.height = 52,
     this.icon,
+    this.iconData,
   });
   final String label;
   final VoidCallback onTap;
@@ -1071,6 +1072,7 @@ class PrimaryButton extends StatelessWidget {
   final Color? fg;
   final double height;
   final List<IconPath>? icon;
+  final IconData? iconData;
 
   @override
   Widget build(BuildContext context) {
@@ -1086,7 +1088,10 @@ class PrimaryButton extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (icon != null) ...[
+            if (iconData != null) ...[
+              Icon(iconData, size: 16, color: f),
+              const SizedBox(width: 8),
+            ] else if (icon != null) ...[
               SvgPathIcon(icon!, size: 15, color: f),
               const SizedBox(width: 9),
             ],

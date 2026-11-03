@@ -84,22 +84,8 @@ $volRec
 
 Directrices:
 1. Responde de forma concisa, motivadora y profesional en español.
-2. Si el usuario solicita o requiere diseñar o ajustar una rutina o entrenamiento, debes incluir al final de tu respuesta un bloque de código estrictamente formateado en JSON con la rutina diseñada.
-3. Formato del bloque JSON para rutinas compatibles con GymMane:
-```json
-{
-  "name": "Nombre de la Rutina",
-  "days": [1, 3, 5],
-  "exercises": [
-    {
-      "name": "Nombre del Ejercicio",
-      "sets": 3,
-      "reps": 10
-    }
-  ]
-}
-```
-Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Viernes, 6=Sábado, 7=Domingo). Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
+2. Si el usuario pide crear o diseñar una rutina, responde con tu explicación y SIEMPRE incluye al final un bloque oculto con este formato exacto: <routine>{"name": "Nombre", "exercises": ["ejercicio 1", "ejercicio 2"]}</routine>. Los nombres de los ejercicios deben coincidir con ejercicios clásicos.
+Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
   }
 
   Future<void> _send() async {
@@ -440,6 +426,11 @@ Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Vie
 
   Widget _buildBubble(GymColors gc, _Message msg) {
     final isUser = msg.role == 'user';
+    final routineRegex = RegExp(r'<routine>([\s\S]*?)</routine>');
+    final match = routineRegex.firstMatch(msg.text);
+    final routineJson = match?.group(1)?.trim();
+    final cleanText = match != null ? msg.text.replaceAll(routineRegex, '').trim() : msg.text;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
@@ -467,13 +458,31 @@ Nota: los días van del 1 al 7 (1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Vie
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SelectableText(
-                    msg.text,
+                    cleanText,
                     style: AppTheme.f(13.5,
                         weight: FontWeight.w500,
                         color: isUser ? gc.text : gc.text,
                         height: 1.45),
                   ),
-                  if (msg.routines.isNotEmpty) ...[
+                  if (routineJson != null && routineJson.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                      label: 'Añadir Rutina a mi Plan',
+                      iconData: PhosphorIconsRegular.downloadSimple,
+                      height: 44,
+                      bg: gc.ember,
+                      fg: gc.onEmber,
+                      onTap: () {
+                        fit.importPlan(routineJson, schedule: true);
+                        showNotchToast(
+                          context,
+                          'Rutina añadida a tu plan con éxito',
+                          icon: PhosphorIconsFill.checkCircle,
+                          accent: gc.sage,
+                        );
+                      },
+                    ),
+                  ] else if (msg.routines.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     for (final r in msg.routines)
                       Container(
