@@ -271,12 +271,11 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
                   ),
                   const SizedBox(width: 8),
                   GestureDetector(
-                    behavior: HitTestBehavior.opaque,
                     onTap: () => _selectModel(context, modelController),
                     child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: gc.ember, borderRadius: BorderRadius.circular(14)),
-                      child: Icon(PhosphorIconsRegular.listMagnifyingGlass, size: 20, color: gc.onEmber),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(color: gc.bgRaised3, borderRadius: BorderRadius.circular(12), border: Border.all(color: gc.border)),
+                      child: Text('Obtener Modelos', style: AppTheme.f(13, weight: FontWeight.w600, color: gc.text)),
                     ),
                   ),
                 ],
@@ -303,6 +302,35 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
                 ],
               ),
               const SizedBox(height: 20),
+              GestureDetector(
+                onTap: () async {
+                  showNotchToast(context, 'Probando conexión...', icon: PhosphorIconsRegular.arrowsClockwise);
+                  final result = await AiClient.instance.testConnection();
+                  if (!context.mounted) return;
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: gc.bgRaised,
+                      title: Text('Probar', style: AppTheme.f(16, weight: FontWeight.w700, color: gc.text)),
+                      content: Text(result, style: AppTheme.f(14, color: gc.text)),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text('Cerrar', style: AppTheme.f(14, weight: FontWeight.w600, color: gc.ember)),
+                        )
+                      ],
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(color: gc.bgRaised2, borderRadius: BorderRadius.circular(100), border: Border.all(color: gc.border)),
+                  alignment: Alignment.center,
+                  child: Text('Probar Conexión', style: AppTheme.f(15, weight: FontWeight.w600, color: gc.text)),
+                ),
+              ),
+              const SizedBox(height: 12),
               PrimaryButton(
                 label: 'Guardar',
                 onTap: () {

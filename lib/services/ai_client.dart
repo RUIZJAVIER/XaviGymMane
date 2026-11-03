@@ -87,8 +87,8 @@ Directrices:
     required List<Map<String, String>> messages,
     String? systemPrompt,
   }) async {
-    final key = apiKey;
-    final currentBase = baseUrl.isNotEmpty ? baseUrl : defaultBaseUrl;
+    final key = apiKey.trim();
+    final currentBase = baseUrl.trim().isNotEmpty ? baseUrl.trim() : defaultBaseUrl;
     final currentModel = model.isNotEmpty ? model : defaultModel;
 
     if (key.isEmpty) {
@@ -142,9 +142,9 @@ Directrices:
   }
 
   Future<List<String>> fetchAvailableModels() async {
-    final key = apiKey;
+    final key = apiKey.trim();
     if (key.isEmpty) return [];
-    final currentBase = baseUrl.isNotEmpty ? baseUrl : defaultBaseUrl;
+    final currentBase = baseUrl.trim().isNotEmpty ? baseUrl.trim() : defaultBaseUrl;
     final endpoint = currentBase.endsWith('/') ? '${currentBase}models' : '$currentBase/models';
     try {
       final client = HttpClient();
@@ -165,6 +165,14 @@ Directrices:
       print('TokenHarbor Error Exception: $e');
     }
     return [];
+  }
+
+  Future<String> testConnection() async {
+    try {
+      return await chatCompletion(messages: [{'role': 'user', 'content': 'Di exactamente: "¡Hola! Conexión exitosa. Todo está configurado correctamente."'}]);
+    } catch (e) {
+      return 'Error de red o de clave: $e';
+    }
   }
 
   static String _cleanSlug(String raw) {
