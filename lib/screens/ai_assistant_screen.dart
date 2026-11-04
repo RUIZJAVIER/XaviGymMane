@@ -84,8 +84,14 @@ $volRec
 
 Directrices:
 1. Responde de forma concisa, motivadora y profesional en español.
-2. Si el usuario pide crear o diseñar una rutina, responde con tu explicación y SIEMPRE incluye al final un bloque oculto con este formato exacto: <routine>{"name": "Nombre", "exercises": ["ejercicio 1", "ejercicio 2"]}</routine>. Los nombres de los ejercicios deben coincidir con ejercicios clásicos.
-Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
+
+REGLAS ESTRICTAS DE CREACIÓN:
+1. AUDITORÍA DE EQUIPAMIENTO: Adapta los ejercicios estrictamente al equipo del usuario.
+2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones reales de máximo 6 a 8 ejercicios.
+3. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, debes imprimir un bloque oculto separado. Si la rutina es de 3 días, imprime TRES bloques <routine>.
+4. ESTRUCTURA DEL JSON: Incluye "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de números 1=Lun a 7=Dom).
+Ejemplo exacto: 
+<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": ["Dumbbell Bench Press", "One-Arm Dumbbell Row"]}</routine>''';
   }
 
   Future<void> _send() async {
@@ -497,9 +503,8 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
   Widget _buildBubble(GymColors gc, _Message msg) {
     final isUser = msg.role == 'user';
     final routineRegex = RegExp(r'<routine>([\s\S]*?)</routine>');
-    final match = routineRegex.firstMatch(msg.text);
-    final routineJson = match?.group(1)?.trim();
-    final cleanText = match != null ? msg.text.replaceAll(routineRegex, '').trim() : msg.text;
+    final matches = routineRegex.allMatches(msg.text).toList();
+    final cleanText = matches.isNotEmpty ? msg.text.replaceAll(routineRegex, '').trim() : msg.text;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -534,19 +539,24 @@ Adapta siempre los ejercicios al equipamiento disponible ($gear).''';
                         color: isUser ? gc.text : gc.text,
                         height: 1.45),
                   ),
-                  if (routineJson != null && routineJson.isNotEmpty) ...[
+                  if (matches.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     PrimaryButton(
-                      label: 'Añadir Rutina a mi Plan',
+                      label: matches.length > 1
+                          ? 'Añadir ${matches.length} Rutinas a mi Plan'
+                          : 'Añadir Rutina a mi Plan',
                       iconData: PhosphorIconsRegular.downloadSimple,
                       height: 44,
                       bg: gc.ember,
                       fg: gc.onEmber,
                       onTap: () {
-                        fit.importPlan(routineJson, schedule: true);
+                        final rawBlocks = matches.map((m) => m.group(0)!).join('\n');
+                        fit.importPlan(rawBlocks, schedule: true);
                         showNotchToast(
                           context,
-                          'Rutina añadida a tu plan con éxito',
+                          matches.length > 1
+                              ? '${matches.length} rutinas añadidas a tu plan con éxito'
+                              : 'Rutina añadida a tu plan con éxito',
                           icon: PhosphorIconsFill.checkCircle,
                           accent: gc.sage,
                         );

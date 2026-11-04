@@ -77,6 +77,18 @@ const _weekdayNames = {
 };
 
 List<PlanRoutine> parsePlan(String raw) {
+  final routineMatches = RegExp(r'<routine>([\s\S]*?)</routine>').allMatches(raw).toList();
+  if (routineMatches.isNotEmpty) {
+    final list = <PlanRoutine>[];
+    for (final m in routineMatches) {
+      final inner = m.group(1)?.trim();
+      if (inner != null && inner.isNotEmpty) {
+        list.addAll(parsePlan(inner));
+      }
+    }
+    if (list.isNotEmpty) return list;
+  }
+
   final data = _decode(raw);
   if (data == null) return _parseCsv(raw);
   final lb = data is Map<Object?, Object?> && _isLb(_value(data, ['unit', 'units', 'unidad']));
@@ -139,7 +151,7 @@ List<Object?>? _routineList(Map<Object?, Object?> map) {
     final k = _norm(entry.key);
     final v = entry.value;
     if (!_routineListKeys.contains(k) || v is! List) continue;
-    if (v.isNotEmpty && v.every((e) => e is num || e is String) && _dayKeys.contains(k)) continue;
+    if (_dayKeys.contains(k) && !v.any((e) => e is Map)) continue;
     return v;
   }
   return null;
@@ -238,7 +250,11 @@ int _kind(Object? v) {
 }
 
 List<int> _days(Object? v) {
-  final list = v is List ? v : (v is String ? v.split(RegExp(r'[,/;\s]+')) : const []);
+  final list = v is List
+      ? v
+      : (v is num
+          ? [v]
+          : (v is String ? v.split(RegExp(r'[,/;\s]+')) : const []));
   final out = <int>{};
   for (final d in list) {
     if (d is num && d >= 1 && d <= 7) out.add(d.toInt());

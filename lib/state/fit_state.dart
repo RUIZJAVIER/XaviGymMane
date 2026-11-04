@@ -1096,6 +1096,8 @@ class FitState extends FitCore
         }
         made++;
         added += picked.length;
+      } else if (plan.group.isNotEmpty) {
+        setRoutineGroup(id, plan.group);
       }
       if (schedule) {
         for (final d in plan.days) {
