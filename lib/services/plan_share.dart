@@ -206,6 +206,21 @@ int? _int(Object? v) {
   return null;
 }
 
+int? _reps(Object? v) {
+  if (v is num) return v.round();
+  if (v is String) {
+    final range = RegExp(r'(\d+)\s*(?:-|–|to|a)\s*(\d+)').firstMatch(v);
+    if (range != null) {
+      final low = int.parse(range.group(1)!);
+      final high = int.parse(range.group(2)!);
+      return ((low + high) / 2).round();
+    }
+    final m = RegExp(r'\d+').firstMatch(v);
+    return m == null ? null : int.parse(m.group(0)!);
+  }
+  return null;
+}
+
 double? _double(Object? v) {
   if (v is num) return v.toDouble();
   if (v is String) {
@@ -302,7 +317,28 @@ List<PlanItem> _items(Object? raw, bool lb) {
   final out = <PlanItem>[];
   for (final entry in raw) {
     if (entry is String) {
-      if (entry.trim().isNotEmpty) out.add(PlanItem(entry.trim(), null));
+      final s = entry.trim();
+      if (s.isEmpty) continue;
+      final pattern = RegExp(r'[\(\[\s,-]+(\d+)\s*[xX×]\s*(\d+)(?:\s*[-–to|a]\s*(\d+))?[\)\]\s]*$');
+      final match = pattern.firstMatch(s);
+      if (match != null) {
+        final cleanName = s.substring(0, match.start).replaceAll(RegExp(r'[\(\[\s,-]+$'), '').trim();
+        final sets = int.tryParse(match.group(1)!);
+        int? reps = int.tryParse(match.group(2)!);
+        if (match.group(3) != null) {
+          final high = int.tryParse(match.group(3)!);
+          if (high != null && reps != null) {
+            reps = ((reps + high) / 2).round();
+          }
+        }
+        final plan = [
+          for (var i = 0; i < (sets ?? 3); i++)
+            PlanSet(reps: reps),
+        ];
+        out.add(PlanItem(cleanName.isNotEmpty ? cleanName : s, sets, reps: reps, plan: plan));
+        continue;
+      }
+      out.add(PlanItem(s, null));
       continue;
     }
     if (entry is! Map<Object?, Object?>) continue;
@@ -314,15 +350,26 @@ List<PlanItem> _items(Object? raw, bool lb) {
     final info = custom is Map<Object?, Object?> ? custom : const <Object?, Object?>{};
     final steps = _value(info, ['steps', 'howto', 'pasos', 'instructions']);
     final superset = _value(entry, ['superset', 'supersetwithnext', 'linked', 'chain']);
+    final sets = _int(_value(entry, _setKeys));
+    final reps = _reps(_value(entry, _repKeys));
+    final kindRaw = _value(entry, ['kind', 'type', 'settype', 'tipo']);
+    final itemKind = kindRaw != null ? _kind(kindRaw) : 0;
+    var plan = _planSets(_value(entry, ['plan', 'setplan', 'setsplan', 'detail']), itemLb);
+    if (plan.isEmpty && sets != null && sets > 0) {
+      plan = [
+        for (var i = 0; i < sets; i++)
+          PlanSet(reps: reps, kind: itemKind),
+      ];
+    }
     out.add(PlanItem(
       name.isEmpty ? id : name,
-      _int(_value(entry, _setKeys)),
+      sets,
       id: id.isEmpty ? null : id,
-      reps: _int(_value(entry, _repKeys)),
+      reps: reps,
       weightKg: _weight(_value(entry, _weightKeys), itemLb),
       restSec: _seconds(_value(entry, _restKeys)),
       superset: superset == true || (superset is String && superset.toLowerCase() == 'true'),
-      plan: _planSets(_value(entry, ['plan', 'setplan', 'setsplan', 'detail']), itemLb),
+      plan: plan,
       muscle: _string(_value(info, ['muscle', 'primary', 'musculo'])),
       equipment: _string(_value(info, ['equipment', 'material', 'gear'])),
       level: _string(_value(info, ['level', 'difficulty', 'nivel'])),

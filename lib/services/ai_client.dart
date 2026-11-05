@@ -17,9 +17,9 @@ REGLAS ESTRICTAS DE CREACIÓN:
 1. AUDITORÍA DE EQUIPAMIENTO: Adapta los ejercicios estrictamente al equipo del usuario.
 2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones reales de máximo 6 a 8 ejercicios.
 3. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, debes imprimir un bloque oculto separado. Si la rutina es de 3 días, imprime TRES bloques <routine>.
-4. ESTRUCTURA DEL JSON: Incluye "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de números 1=Lun a 7=Dom).
+4. ESTRUCTURA DEL JSON Y SERIES: Cada elemento de "exercises" DEBE ser un objeto con "name", "sets" (entero ej: 3 o 4), "reps" (entero o rango ej: 10 o "8-12"), opcionalmente "rest" (descanso en segundos ej: 90) y opcionalmente "kind" ("normal", "warmup", "failure"). Incluye "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de números 1=Lun a 7=Dom).
 Ejemplo exacto: 
-<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": ["Dumbbell Bench Press", "One-Arm Dumbbell Row"]}</routine>''';
+<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "rest": 90}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60}]}</routine>''';
 
   String get baseUrl => Store.instance.note('ai_base_url')?.trim() ?? defaultBaseUrl;
   String get apiKey => Store.instance.note('ai_api_key')?.trim() ?? '';

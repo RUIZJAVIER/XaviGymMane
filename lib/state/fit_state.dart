@@ -1117,20 +1117,21 @@ class FitState extends FitCore
     final explicit = [
       for (final p in item.plan)
         PlannedSet(
-          reps: p.reps ?? item.reps,
+          reps: p.reps ?? item.reps ?? 10,
           weightKg: p.weightKg ?? (p.kind == SetKind.warmup.index ? null : item.weightKg),
           kind: setKindFrom(p.kind),
           sec: p.sec,
           km: p.km,
         ),
     ];
-    final working = explicit.where((p) => p.kind != SetKind.warmup).length;
-    final simple = item.reps == null && item.weightKg == null;
-    final wanted = item.sets ?? (working > 0 || simple ? working : kDefaultRoutineSets);
-    if (simple && explicit.isEmpty) return const [];
+    if (explicit.isNotEmpty) return explicit;
+    final reps = item.reps ?? (item.sets != null ? 10 : null);
+    final count = item.sets ?? (reps != null ? kDefaultRoutineSets : 0);
+    if (count <= 0 && reps == null && item.weightKg == null) return const [];
+    final wanted = count > 0 ? count : kDefaultRoutineSets;
     return [
-      ...explicit,
-      for (var i = working; i < wanted.clamp(0, 20); i++) PlannedSet(reps: item.reps, weightKg: item.weightKg),
+      for (var i = 0; i < wanted.clamp(1, 20); i++)
+        PlannedSet(reps: reps ?? 10, weightKg: item.weightKg),
     ];
   }
 
