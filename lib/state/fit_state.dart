@@ -985,10 +985,11 @@ class FitState extends FitCore
     return lines.join('\n');
   }
 
-  ({int added, List<String> missed, bool readable}) importPlan(String raw, {bool schedule = false}) {
+  ({int added, List<String> missed, bool readable}) importPlan(String raw,
+      {bool schedule = false, bool replace = false}) {
     final plans = parsePlan(raw);
     if (plans.isEmpty) return (added: 0, missed: const [], readable: false);
-    final result = applyPlan(plans, schedule: schedule);
+    final result = applyPlan(plans, schedule: schedule, replace: replace);
     return (added: result.added, missed: result.missed, readable: true);
   }
 
@@ -1032,6 +1033,11 @@ class FitState extends FitCore
     return (routines: made, added: added, missed: missed, owned: owned);
   }
 
+  Routine? _routineByName(String name) {
+    final key = name.trim().toLowerCase();
+    return routines.where((r) => !r.archived && r.name.trim().toLowerCase() == key).firstOrNull;
+  }
+
   Routine? _ownedRoutine(PlanRoutine plan, List<String> ids) {
     final name = plan.name.isEmpty ? t.newRoutineName : plan.name;
     return routines.where((r) => _sameRoutine(r, name, ids) && r.group == plan.group).firstOrNull;
@@ -1047,7 +1053,9 @@ class FitState extends FitCore
       }
       if (!ids.contains(ex.id)) ids.add(ex.id);
     }
-    return ids.isNotEmpty && _ownedRoutine(plan, ids) != null;
+    if (ids.isEmpty) return false;
+    return _routineByName(plan.name.isEmpty ? t.newRoutineName : plan.name) != null ||
+        _ownedRoutine(plan, ids) != null;
   }
 
   bool _sameRoutine(Routine r, String name, List<String> ids) =>
@@ -1055,8 +1063,41 @@ class FitState extends FitCore
       r.exerciseIds.length == ids.length &&
       [for (var i = 0; i < ids.length; i++) r.exerciseIds[i] == ids[i]].every((x) => x);
 
+  void _populatePlan(String id, List<(Exercise, PlanItem)> picked) {
+    for (final (ex, item) in picked) {
+      toggleRoutineExercise(id, ex.id);
+      final sets = _plannedFrom(item);
+      if (sets.isNotEmpty) {
+        setPlannedSets(id, ex.id, sets);
+      } else if (item.sets != null) {
+        setRoutineSetCount(id, ex.id, item.sets!);
+      }
+      if (item.superset) toggleChain(id, ex.id);
+      if (item.ladder.isNotEmpty) {
+        final steps = [
+          for (final name in item.ladder) ?_planExercise(PlanItem(name, null))?.id,
+        ];
+        setLadder(id, ex.id, steps.contains(ex.id) ? steps : [ex.id, ...steps]);
+      }
+      final rest = item.restSec;
+      if (rest != null) setRoutineRest(id, ex.id, rest);
+    }
+  }
+
+  void _clearPlanSchedule(String id) {
+    for (final d in [...weeklyPlan.keys]) {
+      if (weeklyPlan[d] == id) weeklyPlan.remove(d);
+    }
+    for (final extras in planExtras.values) {
+      extras.removeWhere((x) => x == id);
+    }
+    for (final moved in planMoves.values) {
+      moved.remove(id);
+    }
+  }
+
   ({int routines, int added, List<String> missed}) applyPlan(List<PlanRoutine> plans,
-      {bool schedule = false, bool copies = false}) {
+      {bool schedule = false, bool copies = false, bool replace = false}) {
     var made = 0, added = 0;
     final missed = <String>[];
     for (final plan in plans) {
@@ -1072,32 +1113,34 @@ class FitState extends FitCore
       }
       if (picked.isEmpty) continue;
       final name = plan.name.isEmpty ? t.newRoutineName : plan.name;
-      final existing = copies ? null : _ownedRoutine(plan, [for (final p in picked) p.$1.id]);
-      final id = existing?.id ?? createRoutine(name);
+      final ids = [for (final p in picked) p.$1.id];
+      final existing = copies
+          ? null
+          : (replace ? (_routineByName(name) ?? _ownedRoutine(plan, ids)) : _ownedRoutine(plan, ids));
+      late final String id;
       if (existing == null) {
-        setRoutineGroup(id, plan.group);
-        for (final (ex, item) in picked) {
-          toggleRoutineExercise(id, ex.id);
-          final sets = _plannedFrom(item);
-          if (sets.isNotEmpty) {
-            setPlannedSets(id, ex.id, sets);
-          } else if (item.sets != null) {
-            setRoutineSetCount(id, ex.id, item.sets!);
-          }
-          if (item.superset) toggleChain(id, ex.id);
-          if (item.ladder.isNotEmpty) {
-            final steps = [
-              for (final name in item.ladder) ?_planExercise(PlanItem(name, null))?.id,
-            ];
-            setLadder(id, ex.id, steps.contains(ex.id) ? steps : [ex.id, ...steps]);
-          }
-          final rest = item.restSec;
-          if (rest != null) setRoutineRest(id, ex.id, rest);
-        }
+        id = createRoutine(name);
+        if (plan.group.isNotEmpty) setRoutineGroup(id, plan.group);
+        _populatePlan(id, picked);
         made++;
         added += picked.length;
-      } else if (plan.group.isNotEmpty) {
-        setRoutineGroup(id, plan.group);
+      } else if (replace) {
+        id = existing.id;
+        // Sobrescribe la rutina existente en lugar de duplicarla.
+        existing.exerciseIds.clear();
+        existing.sets.clear();
+        existing.plan.clear();
+        existing.rest.clear();
+        existing.chained.clear();
+        existing.ladders.clear();
+        if (plan.group.isNotEmpty) setRoutineGroup(id, plan.group);
+        if (schedule && plan.days.isNotEmpty) _clearPlanSchedule(id);
+        _populatePlan(id, picked);
+        made++;
+        added += picked.length;
+      } else {
+        id = existing.id;
+        if (plan.group.isNotEmpty) setRoutineGroup(id, plan.group);
       }
       if (schedule) {
         for (final d in plan.days) {

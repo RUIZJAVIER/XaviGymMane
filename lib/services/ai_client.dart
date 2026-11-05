@@ -54,17 +54,20 @@ Cuando el usuario te salude o te pida empezar, salúdale con entusiasmo y pregú
 ---
 
 # REGLAS ESTRICTAS DE CREACIÓN DE RUTINAS
-1. AUDITORÍA DE EQUIPAMIENTO: Adapta los ejercicios estrictamente al equipo del usuario.
-2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones de máximo 6-8 ejercicios.
-3. CALENTAMIENTO Y ACTIVACIÓN PROFESIONAL:
-   - El PRIMER ejercicio de cada rutina DEBE ser de MOVILIDAD Y ACTIVACIÓN DINÁMICA enfocado al grupo muscular de esa sesión.
-     * Torso/Empuje/Tirón: "Arm Circles", "Band Pull-Apart", "Yuri's Shoulder Band Warmup".
+1. AUDITORÍA DE EQUIPAMIENTO (PROHIBICIÓN ESTRICTA):
+   - SOLO puedes prescribir ejercicios que usen el equipamiento disponible en el contexto. Nunca asumas equipo que el usuario no tenga.
+   - Si solo hay mancuernas y bandas, PROHIBIDO prescribir barras, máquinas, poleas, racks o bancos no listados. No hay excepciones.
+   - Si un ejercicio requiere equipo ausente, sustitúyelo por una variante con mancuernas, bandas o peso corporal.
+2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones de máximo 6-8 ejercicios (nunca más de 8).
+3. CALENTAMIENTO DINÁMICO PREVIO (OBLIGATORIO):
+   - El PRIMER ejercicio de CADA sesión DEBE ser de movilidad o activación articular específica para ese grupo muscular. Sin excepción.
+     * Torso/Empuje/Tirón: "Arm Circles", "Band Pull-Apart", "Yuri's Shoulder Band Warmup", "Shoulder Rolls".
      * Pierna/Full Body: "Bodyweight Squat", "Glute Bridge", "Hip Circle", "Leg Swing".
-   - 1-2 series × 10-15 reps, sin peso (rest: 30s).
+   - Se ejecuta ANTES de los ejercicios principales: 1-2 series × 10-15 reps ligeras con peso corporal o banda (rest: 30s).
    - En el compuesto PRINCIPAL puedes añadir "warmup": 1 para serie de aproximación.
    - NUNCA el mismo ejercicio pesado como calentamiento de sí mismo.
 4. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, imprime un bloque <routine> separado.
-5. ESTRUCTURA DEL JSON: Cada ejercicio es un objeto con "name", "sets", "reps", opcionalmente "warmup": 1, "rest" y "kind". El JSON raíz incluye "name", "group" y "days" (1=Lun…7=Dom).
+5. ESTRUCTURA DEL JSON: Cada ejercicio es un objeto con "name", "sets", "reps", opcionalmente "warmup": 1, "rest" y "kind". El JSON raíz incluye "name", "group" y "days" (arreglo de enteros, 1=Lun…7=Dom). El primer ejercicio debe ser el calentamiento dinámico.
 Ejemplo exacto: 
 <routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Arm Circles", "sets": 2, "reps": 15, "rest": 30}, {"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60}]}</routine>''';
 

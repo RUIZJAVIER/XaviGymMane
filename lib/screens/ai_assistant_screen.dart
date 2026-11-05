@@ -1,8 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -93,6 +91,9 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         _sessions = [];
       }
     }
+    if (_sessions.isEmpty) {
+      _restoreLegacyHistory();
+    }
     final currentId = Store.instance.note('ai_chat_current_id');
     _currentSession = _sessions.where((s) => s.id == currentId).firstOrNull ?? _sessions.firstOrNull;
 
@@ -102,6 +103,38 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       _messages.clear();
       _messages.addAll(_currentSession!.messages);
     }
+  }
+
+  void _restoreLegacyHistory() {
+    final raw = Store.instance.note('ai_chat_history');
+    if (raw == null || raw.trim().isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      final items = decoded is Map ? decoded['messages'] : decoded;
+      if (items is! List || items.isEmpty) return;
+      final messages = items
+          .whereType<Map>()
+          .map((m) => _Message.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+      if (messages.isEmpty) return;
+      _sessions = [
+        _ChatSession(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: _titleFromMessages(messages),
+          createdAt: DateTime.now(),
+          messages: messages,
+        ),
+      ];
+    } catch (_) {
+      // Historial antiguo corrupto: se ignora y se empieza de cero.
+    }
+  }
+
+  String _titleFromMessages(List<_Message> messages) {
+    final firstUser = messages.where((m) => m.role == 'user').firstOrNull;
+    final text = firstUser?.text.trim() ?? '';
+    if (text.isEmpty) return 'Conversación';
+    return text.length > 28 ? '${text.substring(0, 28)}…' : text;
   }
 
   void _initNewSession() {
@@ -137,6 +170,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     }
     final payload = jsonEncode(_sessions.map((s) => s.toJson()).toList());
     Store.instance.setNote('ai_chat_sessions_v1', payload);
+    Store.instance.setNote(
+      'ai_chat_history',
+      jsonEncode(_messages.map((m) => m.toJson()).toList()),
+    );
   }
 
   void _startNewChat() {
@@ -154,28 +191,46 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       return;
     }
     try {
-      showNotchToast(context, 'Preparando exportación...', icon: PhosphorIconsRegular.arrowsClockwise);
-      final buffer = StringBuffer();
       final title = _currentSession?.title ?? 'Conversación GymMane';
       final date = DateTime.now().toLocal().toString().split('.').first;
-      buffer.writeln('# $title');
-      buffer.writeln('**Fecha de exportación:** $date');
-      buffer.writeln('**Modelo IA:** ${fit.aiModel}');
-      buffer.writeln('\n---\n');
+      final buffer = StringBuffer();
+      buffer.writeln('GYMMANE · $title');
+      buffer.writeln('Fecha de exportación: $date');
+      buffer.writeln('Modelo IA: ${fit.aiModel}');
+      buffer.writeln('=' * 48);
       for (final m in _messages) {
-        final sender = m.role == 'user' ? '👤 Tú' : '🤖 Entrenador GymMane';
-        buffer.writeln('### $sender:\n');
-        buffer.writeln('${m.text}\n');
+        final isUser = m.role == 'user';
+        final sender = isUser ? 'TÚ' : 'ENTRENADOR GYMMANE';
+        final routines = isUser
+            ? const <PlanRoutine>[]
+            : (m.routines.isNotEmpty ? m.routines : parsePlan(m.text));
+        final clean = isUser
+            ? m.text.trim()
+            : m.text
+                .replaceAll(RegExp(r'<routine>[\s\S]*?</routine>'), '')
+                .replaceAll(RegExp(r'```(?:json)?[\s\S]*?```'), '')
+                .trim();
+        buffer.writeln('\n[$sender]');
+        if (clean.isNotEmpty) buffer.writeln(clean);
+        for (final r in routines) {
+          buffer.writeln('\nRUTINA: ${r.name.isEmpty ? 'Sesión' : r.name}');
+          if (r.group.isNotEmpty) buffer.writeln('Grupo: ${r.group}');
+          if (r.days.isNotEmpty) buffer.writeln('Días: ${r.days.join(', ')}');
+          for (final item in r.items) {
+            final workingSets = item.plan.where((p) => p.kind != 1).length;
+            final sets = item.sets ?? workingSets;
+            final reps = item.reps;
+            final detail = [
+              if (sets != null && sets > 0) '$sets series',
+              if (reps != null) '$reps reps',
+            ].join(' × ');
+            buffer.writeln('- ${item.name}${detail.isEmpty ? '' : ': $detail'}');
+          }
+        }
       }
-      final dir = await getTemporaryDirectory();
-      final safeName = title.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-      final file = File('${dir.path}/gymmane-chat-$safeName-${DateTime.now().millisecondsSinceEpoch}.md');
-      await file.writeAsString(buffer.toString());
-      if (!mounted) return;
-      await SharePlus.instance.share(ShareParams(
-        files: [XFile(file.path, mimeType: 'text/markdown')],
-        subject: title,
-      ));
+      await SharePlus.instance.share(
+        ShareParams(text: buffer.toString(), subject: title),
+      );
     } catch (e) {
       if (mounted) {
         showNotchToast(context, 'Error al exportar: $e', accent: gc.warn);
@@ -324,6 +379,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     final days = place?.targetDaysPerWeek ?? 3;
     final gear = fit.gearHere.join(', ');
     final volRec = fit.volumeRecommendation(days);
+    final routineContext = _buildRoutineContext();
 
     return '''
 # ROL Y PERSONALIDAD
@@ -376,16 +432,30 @@ Cuando el usuario te salude o te pida empezar, adopta este rol de inmediato, sal
 - Pautas de volumen recomendadas:
 $volRec
 
+# RESUMEN DE RUTINAS GUARDADAS Y CARGAS RECIENTES
+$routineContext
+
+# CÓMO EVALUAR LA SOBRECARGA PROGRESIVA
+- Revisa este resumen ANTES de responder. Si un ejercicio no tiene registros, pídele al usuario sus últimas cargas.
+- Si en un ejercicio el usuario completó TODAS las series de trabajo en el tope del rango (ej. 12 reps en el rango 8-12) con RIR 1-2, detecta que está listo para sobrecarga SIN añadir peso y guíalo con: excéntrica de 3-4 segundos, pausas de 1-2 segundos en la contracción, acortar descansos (ej. 90s → 60-75s), o bandas de resistencia si están disponibles en su equipamiento.
+- Si aún le falta margen en el rango, primero recomienda sumar 1-2 repeticiones antes de subir la carga.
+- Si el objetivo es fuerza y ya domina el rango, añade intensidad solo si tiene medios para progresar (mancuernas/bandas); nunca inventes equipamiento.
+- Prioriza tensión mecánica, densidad de entrenamiento y tiempo bajo tensión sobre subir kilos sin progresiones limpias.
+- Cuando generes rutinas, parte de este resumen para actualizar la rutina existente; no dupliques la misma rutina.
+
 ---
 
 # REGLAS ESTRICTAS DE CREACIÓN DE RUTINAS
-1. AUDITORÍA DE EQUIPAMIENTO: Adapta los ejercicios estrictamente al equipo del usuario.
-2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones reales de máximo 6 a 8 ejercicios.
-3. CALENTAMIENTO Y ACTIVACIÓN PROFESIONAL:
-   - El PRIMER ejercicio de cada rutina DEBE ser de MOVILIDAD Y ACTIVACIÓN DINÁMICA enfocado al grupo muscular de esa sesión.
+1. AUDITORÍA DE EQUIPAMIENTO (PROHIBICIÓN ESTRICTA):
+   - SOLO puedes prescribir ejercicios que usen el equipamiento disponible en el CONTEXTO ACTUAL. Nunca asumas equipo que el usuario no tenga.
+   - Si el equipo disponible son mancuernas y bandas, PROHIBIDO prescribir barras, máquinas, poleas, racks, bancos o cualquier otro implemento que no aparezca en la lista. No hay excepciones.
+   - Si un ejercicio ideal requiere equipo ausente, sustitúyelo por una variante con mancuernas, bandas o peso corporal.
+2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones reales de máximo 6 a 8 ejercicios (nunca más de 8).
+3. CALENTAMIENTO DINÁMICO PREVIO (OBLIGATORIO):
+   - El PRIMER ejercicio de CADA sesión generada DEBE ser un movimiento de movilidad o activación articular específico para el grupo muscular de esa sesión. Sin excepción.
      * Torso/Empuje/Tirón: "Arm Circles", "Band Pull-Apart", "Yuri's Shoulder Band Warmup", "Shoulder Rolls".
      * Pierna/Full Body: "Bodyweight Squat", "Glute Bridge", "Hip Circle", "Leg Swing".
-   - Este ejercicio de movilidad: 1-2 series × 10-15 reps, sin peso (rest: 30s).
+   - El calentamiento se realiza ANTES de cualquier ejercicio principal de sobrecarga: 1-2 series × 10-15 reps ligeras con peso corporal o banda (rest: 30s).
    - En el ejercicio compuesto PRINCIPAL (siguiente al de movilidad), puedes añadir "warmup": 1 para una serie de aproximación ligera.
    - NUNCA pongas el mismo ejercicio pesado como calentamiento de sí mismo con las mismas repeticiones de trabajo.
 4. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, imprime un bloque oculto separado. Si la rutina es de 3 días, imprime TRES bloques <routine>.
@@ -394,7 +464,8 @@ $volRec
    - "warmup": 1 (opcional, solo en el compuesto principal)
    - "rest" (segundos, ej: 90)
    - "kind" (opcional: "normal", "warmup", "failure")
-   Incluye en el JSON raíz: "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo 1=Lun … 7=Dom).
+   Incluye en el JSON raíz: "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de enteros, 1=Lun … 7=Dom).
+   El primer elemento de "exercises" debe ser siempre el calentamiento dinámico de esa sesión.
 Ejemplo exacto: 
 <routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Arm Circles", "sets": 2, "reps": 15, "rest": 30}, {"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60}]}</routine>''';
   }
@@ -454,11 +525,7 @@ Ejemplo exacto:
 
   List<PlanRoutine> _extractRoutines(String text) {
     try {
-      final codeBlock = RegExp(r'```(?:json)?\s*([\s\S]*?)\s*```');
-      final match = codeBlock.firstMatch(text);
-      final jsonCandidate = match != null ? match.group(1)! : text;
-      final parsed = parsePlan(jsonCandidate);
-      return parsed.where((p) => p.items.isNotEmpty).toList();
+      return parsePlan(text).where((p) => p.items.isNotEmpty).toList();
     } catch (_) {
       return const [];
     }
@@ -466,7 +533,7 @@ Ejemplo exacto:
 
   void _applyRoutine(List<PlanRoutine> routines) {
     final gc = context.gc;
-    final res = fit.applyPlan(routines, schedule: true);
+    final res = fit.applyPlan(routines, schedule: true, replace: true);
     showNotchToast(
       context,
       res.routines > 0 ? t.routinesAdded(res.routines) : t.nothingToImport,
@@ -476,21 +543,53 @@ Ejemplo exacto:
     );
   }
 
+  String _plannedReps(List<PlannedSet> working) {
+    if (working.isEmpty) return '';
+    final unique = working.map((p) => p.reps).toSet();
+    if (unique.length == 1) return '${unique.first ?? '-'}';
+    return working.map((p) => p.reps?.toString() ?? '-').join('/');
+  }
+
+  String _buildRoutineContext() {
+    final list = fit.activeRoutines.isNotEmpty ? fit.activeRoutines : fit.routines;
+    if (list.isEmpty) return '- Rutinas guardadas: ninguna aún.';
+    final buffer = StringBuffer();
+    for (final r in list) {
+      final days = [for (var d = 1; d <= 7; d++) if (fit.plannedOn(d, r.id)) d];
+      buffer.writeln(
+        'RUTINA: ${fit.routineTitle(r)}'
+        '${r.group.isEmpty ? '' : ' · grupo: ${r.group}'}'
+        '${days.isEmpty ? '' : ' · días: ${days.join(', ')}'}',
+      );
+      for (final id in r.exerciseIds) {
+        final ex = fit.exerciseById(id);
+        final name = ex?.name ?? id;
+        final planned = fit.plannedSets(r, id);
+        final working = planned.where((p) => p.kind != SetKind.warmup).toList();
+        final warmup = planned.length - working.length;
+        final setCount = working.isNotEmpty ? working.length : fit.routineSets(r, id);
+        final reps = _plannedReps(working);
+        final plannedWeights = working.where((p) => p.weightKg != null).map((p) => p.weightKg!).toList();
+        final loadNote = plannedWeights.isEmpty ? '' : ' · meta: ${fit.weightLabel(plannedWeights.reduce((a, b) => a > b ? a : b))}';
+        final last = fit.lastSetsFor(id).where((s) => s.counts).toList();
+        final lastNote = last.isEmpty
+            ? 'última: sin registros'
+            : 'última: ${fit.weightLabel(last.map((s) => s.weight).reduce((a, b) => a > b ? a : b))} × ${last.map((s) => s.reps).join('/')} (${last.length} series)';
+        buffer.writeln(
+          '  - $name: $setCount series${warmup > 0 ? ' (+$warmup calent.)' : ''}'
+          '${reps.isEmpty ? '' : ' × $reps reps'}$loadNote · $lastNote',
+        );
+      }
+    }
+    return buffer.toString().trimRight();
+  }
+
   String _getFormattedRoutines() {
     final list = fit.activeRoutines.isNotEmpty ? fit.activeRoutines : fit.routines;
     if (list.isEmpty) {
       return 'No tengo rutinas guardadas aún.';
     }
-    final buffer = StringBuffer('Por favor analiza mis rutinas actuales:\n\n');
-    for (final r in list) {
-      final names = [
-        for (final id in r.exerciseIds)
-          fit.exerciseById(id)?.name ?? id,
-      ];
-      final exText = names.isNotEmpty ? names.join(', ') : 'Sin ejercicios';
-      buffer.writeln('- ${r.name}: $exText');
-    }
-    return buffer.toString().trimRight();
+    return 'Por favor analiza mis rutinas actuales:\n\n${_buildRoutineContext()}';
   }
 
   Future<void> _selectModel(BuildContext context, TextEditingController modelCtrl) async {
@@ -878,7 +977,7 @@ Ejemplo exacto:
                       fg: gc.onEmber,
                       onTap: () {
                         final rawBlocks = matches.map((m) => m.group(0)!).join('\n');
-                        fit.importPlan(rawBlocks, schedule: true);
+                        fit.importPlan(rawBlocks, schedule: true, replace: true);
                         showNotchToast(
                           context,
                           matches.length > 1
