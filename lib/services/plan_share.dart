@@ -302,7 +302,7 @@ List<PlanSet> _planSets(Object? raw, bool lb) {
   for (final s in raw) {
     if (s is! Map<Object?, Object?>) continue;
     out.add(PlanSet(
-      reps: _int(_value(s, _repKeys)),
+      reps: _reps(_value(s, _repKeys)),
       weightKg: _weight(_value(s, _weightKeys), lb || _value(s, ['lbs', 'lb']) != null),
       kind: _kind(_value(s, ['type', 'kind', 'tipo', 'settype'])),
       sec: _seconds(_value(s, _timeKeys)),
@@ -354,9 +354,13 @@ List<PlanItem> _items(Object? raw, bool lb) {
     final reps = _reps(_value(entry, _repKeys));
     final kindRaw = _value(entry, ['kind', 'type', 'settype', 'tipo']);
     final itemKind = kindRaw != null ? _kind(kindRaw) : 0;
+    final warmupRaw = _value(entry, ['warmup', 'warmupsets', 'calentamiento']);
+    final warmupCount = _int(warmupRaw) ?? (warmupRaw == true ? 1 : 0);
     var plan = _planSets(_value(entry, ['plan', 'setplan', 'setsplan', 'detail']), itemLb);
     if (plan.isEmpty && sets != null && sets > 0) {
       plan = [
+        for (var i = 0; i < warmupCount; i++)
+          PlanSet(reps: (reps != null && reps > 0) ? (reps + 2) : 12, kind: 1),
         for (var i = 0; i < sets; i++)
           PlanSet(reps: reps, kind: itemKind),
       ];
