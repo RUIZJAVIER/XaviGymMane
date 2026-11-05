@@ -1,9 +1,15 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../l10n/l10n.dart';
 import '../models/workout.dart';
 import '../services/ai_client.dart';
+import '../services/local_store.dart';
 import '../services/plan_share.dart';
 import '../state/fit_state.dart';
 import '../theme/app_colors.dart';
@@ -16,6 +22,42 @@ class _Message {
   final String role;
   final String text;
   final List<PlanRoutine> routines;
+
+  Map<String, dynamic> toJson() => {'role': role, 'text': text};
+  factory _Message.fromJson(Map<String, dynamic> j) => _Message(
+        role: j['role'] as String? ?? 'user',
+        text: j['text'] as String? ?? '',
+      );
+}
+
+class _ChatSession {
+  _ChatSession({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.messages,
+  });
+
+  final String id;
+  String title;
+  final DateTime createdAt;
+  final List<_Message> messages;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'createdAt': createdAt.toIso8601String(),
+        'messages': messages.map((m) => m.toJson()).toList(),
+      };
+
+  factory _ChatSession.fromJson(Map<String, dynamic> j) => _ChatSession(
+        id: j['id'] as String? ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        title: j['title'] as String? ?? 'Conversación',
+        createdAt: DateTime.tryParse(j['createdAt'] as String? ?? '') ?? DateTime.now(),
+        messages: ((j['messages'] as List?) ?? [])
+            .map((m) => _Message.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList(),
+      );
 }
 
 class AiAssistantScreen extends StatefulWidget {
@@ -29,22 +71,231 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
   final List<_Message> _messages = [];
+  List<_ChatSession> _sessions = [];
+  _ChatSession? _currentSession;
   bool _loading = false;
 
   @override
   void initState() {
     super.initState();
+    _loadSessions();
+  }
+
+  void _loadSessions() {
+    final raw = Store.instance.note('ai_chat_sessions_v1');
+    if (raw != null && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw) as List;
+        _sessions = decoded
+            .map((s) => _ChatSession.fromJson(Map<String, dynamic>.from(s as Map)))
+            .toList();
+      } catch (_) {
+        _sessions = [];
+      }
+    }
+    final currentId = Store.instance.note('ai_chat_current_id');
+    _currentSession = _sessions.where((s) => s.id == currentId).firstOrNull ?? _sessions.firstOrNull;
+
+    if (_currentSession == null) {
+      _initNewSession();
+    } else {
+      _messages.clear();
+      _messages.addAll(_currentSession!.messages);
+    }
+  }
+
+  void _initNewSession() {
     final place = fit.activePlace;
     final days = place?.targetDaysPerWeek ?? 3;
     final placeName = place?.name ?? 'General';
-    _messages.add(
-      _Message(
-        role: 'assistant',
-        text: '¡Hola! Soy tu asistente de entrenamiento en GymMane.\n\n'
-            '📍 Lugar activo: $placeName\n'
-            '📅 Meta: $days días/semana (Frecuencia 2)\n'
-            '🎒 Equipamiento: ${fit.gearHere.join(', ')}\n\n'
-            '¿Qué deseas entrenar hoy o qué rutina te gustaría diseñar?',
+    final welcome = _Message(
+      role: 'assistant',
+      text: '¡Hola! Soy tu asistente de entrenamiento en GymMane.\n\n'
+          '📍 Lugar activo: $placeName\n'
+          '📅 Meta: $days días/semana (Frecuencia 2)\n'
+          '🎒 Equipamiento: ${fit.gearHere.join(', ')}\n\n'
+          '¿Qué deseas entrenar hoy o qué rutina te gustaría diseñar?',
+    );
+    final session = _ChatSession(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: 'Nueva conversación',
+      createdAt: DateTime.now(),
+      messages: [welcome],
+    );
+    _sessions.insert(0, session);
+    _currentSession = session;
+    _messages.clear();
+    _messages.addAll(session.messages);
+    _saveSessions();
+  }
+
+  void _saveSessions() {
+    if (_currentSession != null) {
+      _currentSession!.messages.clear();
+      _currentSession!.messages.addAll(_messages);
+      Store.instance.setNote('ai_chat_current_id', _currentSession!.id);
+    }
+    final payload = jsonEncode(_sessions.map((s) => s.toJson()).toList());
+    Store.instance.setNote('ai_chat_sessions_v1', payload);
+  }
+
+  void _startNewChat() {
+    setState(() {
+      _initNewSession();
+    });
+    _scrollToBottom();
+    showNotchToast(context, 'Nueva conversación iniciada', icon: PhosphorIconsRegular.plus);
+  }
+
+  Future<void> _exportConversation() async {
+    final gc = context.gc;
+    if (_messages.isEmpty) {
+      showNotchToast(context, 'No hay mensajes para exportar', accent: gc.warn);
+      return;
+    }
+    try {
+      showNotchToast(context, 'Preparando exportación...', icon: PhosphorIconsRegular.arrowsClockwise);
+      final buffer = StringBuffer();
+      final title = _currentSession?.title ?? 'Conversación GymMane';
+      final date = DateTime.now().toLocal().toString().split('.').first;
+      buffer.writeln('# $title');
+      buffer.writeln('**Fecha de exportación:** $date');
+      buffer.writeln('**Modelo IA:** ${fit.aiModel}');
+      buffer.writeln('\n---\n');
+      for (final m in _messages) {
+        final sender = m.role == 'user' ? '👤 Tú' : '🤖 Entrenador GymMane';
+        buffer.writeln('### $sender:\n');
+        buffer.writeln('${m.text}\n');
+      }
+      final dir = await getTemporaryDirectory();
+      final safeName = title.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final file = File('${dir.path}/gymmane-chat-$safeName-${DateTime.now().millisecondsSinceEpoch}.md');
+      await file.writeAsString(buffer.toString());
+      if (!mounted) return;
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile(file.path, mimeType: 'text/markdown')],
+        subject: title,
+      ));
+    } catch (e) {
+      if (mounted) {
+        showNotchToast(context, 'Error al exportar: $e', accent: gc.warn);
+      }
+    }
+  }
+
+  void _openHistorySheet() {
+    final gc = context.gc;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (sheetCtx, setSheetState) {
+          return Container(
+            padding: sheetPad(sheetCtx),
+            decoration: sheetDecoration(gc),
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheetCtx).height * 0.75),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SheetHandle(),
+                const SizedBox(height: 16),
+                Row(children: [
+                  Icon(PhosphorIconsRegular.clockCounterClockwise, size: 20, color: gc.ember),
+                  const SizedBox(width: 8),
+                  Text('Historial de Conversaciones',
+                      style: AppTheme.f(18, weight: FontWeight.w700, color: gc.text)),
+                ]),
+                const SizedBox(height: 6),
+                Text(
+                  'Selecciona una conversación anterior para continuarla o exportarla.',
+                  style: AppTheme.f(12, weight: FontWeight.w500, color: gc.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _sessions.length,
+                    itemBuilder: (_, i) {
+                      final s = _sessions[i];
+                      final isCurrent = s.id == _currentSession?.id;
+                      final dateStr = '${s.createdAt.day}/${s.createdAt.month}/${s.createdAt.year}';
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: isCurrent ? gc.emberSoft : gc.bgRaised2,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: isCurrent ? gc.ember.withValues(alpha: 0.4) : gc.border),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                          title: Text(
+                            s.title.isEmpty ? 'Conversación' : s.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.f(14, weight: isCurrent ? FontWeight.w700 : FontWeight.w600, color: gc.text),
+                          ),
+                          subtitle: Text(
+                            '$dateStr · ${s.messages.length} mensajes',
+                            style: AppTheme.f(11.5, color: gc.textSecondary),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_sessions.length > 1)
+                                IconButton(
+                                  icon: Icon(PhosphorIconsRegular.trash, size: 18, color: gc.textTertiary),
+                                  onPressed: () {
+                                    setSheetState(() {
+                                      _sessions.removeAt(i);
+                                      if (isCurrent) {
+                                        _currentSession = _sessions.firstOrNull;
+                                        _messages.clear();
+                                        if (_currentSession != null) {
+                                          _messages.addAll(_currentSession!.messages);
+                                        }
+                                      }
+                                      _saveSessions();
+                                    });
+                                    setState(() {});
+                                  },
+                                ),
+                              Icon(
+                                isCurrent ? PhosphorIconsFill.checkCircle : PhosphorIconsRegular.caretRight,
+                                size: 18,
+                                color: isCurrent ? gc.ember : gc.textTertiary,
+                              ),
+                            ],
+                          ),
+                          onTap: () {
+                            setState(() {
+                              _currentSession = s;
+                              _messages.clear();
+                              _messages.addAll(s.messages);
+                              _saveSessions();
+                            });
+                            Navigator.pop(sheetCtx);
+                            _scrollToBottom();
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                PrimaryButton(
+                  label: 'Nueva Conversación',
+                  iconData: PhosphorIconsRegular.plus,
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    _startNewChat();
+                  },
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -88,11 +339,13 @@ Directrices:
 REGLAS ESTRICTAS DE CREACIÓN:
 1. AUDITORÍA DE EQUIPAMIENTO: Adapta los ejercicios estrictamente al equipo del usuario.
 2. FRAGMENTACIÓN OBLIGATORIA: NUNCA agrupes toda la semana en una sola sesión. Crea sesiones reales de máximo 6 a 8 ejercicios.
-3. CALENTAMIENTO Y APROXIMACIÓN: En el primer ejercicio compuesto o pesado de la sesión, añade 1 serie de calentamiento usando "warmup": 1.
+3. CALENTAMIENTO Y ACTIVACIÓN PROFESIONAL (PROPUESTA B):
+   - El PRIMER ejercicio de cada rutina DEBE ser de MOVILIDAD Y ACTIVACIÓN DINÁMICA enfocado al grupo muscular (ej: "Arm Circles", "Band Pull-Apart", "Yuri's Shoulder Band Warmup" para Torso/Empuje/Tirón; "Bodyweight Squat", "Glute Bridge" o movilidad de cadera para Pierna/Full Body) con 1 a 2 series ligeras de 10 a 15 repeticiones (peso 0 o corporal).
+   - Opcionalmente en el ejercicio compuesto principal posterior, puedes añadir 1 serie de aproximación ligera con "warmup": 1.
 4. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, debes imprimir un bloque oculto separado. Si la rutina es de 3 días, imprime TRES bloques <routine>.
 5. ESTRUCTURA DEL JSON Y SERIES: Cada elemento de "exercises" DEBE ser un objeto con "name", "sets" (entero ej: 3 o 4), "reps" (entero o rango ej: 10 o "8-12"), opcionalmente "warmup": 1 (para aproximación previa), opcionalmente "rest" (descanso en segundos ej: 90) y opcionalmente "kind" ("normal", "warmup", "failure"). Incluye "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de números 1=Lun a 7=Dom).
 Ejemplo exacto: 
-<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60}]}</routine>''';
+<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Arm Circles", "sets": 2, "reps": 15, "rest": 30}, {"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60}]}</routine>''';
   }
 
   Future<void> _send() async {
@@ -104,6 +357,11 @@ Ejemplo exacto:
       _messages.add(_Message(role: 'user', text: text));
       _loading = true;
     });
+    if (_currentSession != null &&
+        (_currentSession!.title == 'Nueva conversación' || _currentSession!.title.isEmpty)) {
+      _currentSession!.title = text.length > 28 ? '${text.substring(0, 28)}…' : text;
+    }
+    _saveSessions();
     _scrollToBottom();
 
     try {
@@ -125,6 +383,7 @@ Ejemplo exacto:
           _messages.add(_Message(role: 'assistant', text: reply, routines: parsed));
           _loading = false;
         });
+        _saveSessions();
         _scrollToBottom();
       }
     } catch (_) {
@@ -136,6 +395,7 @@ Ejemplo exacto:
           ));
           _loading = false;
         });
+        _saveSessions();
         _scrollToBottom();
       }
     }
@@ -397,10 +657,25 @@ Ejemplo exacto:
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
             child: ScreenHeader(
               title: 'Asistente IA',
-              subtitle: fit.aiModel,
+              subtitle: _currentSession?.title ?? fit.aiModel,
               onBack: fit.backFromAiPlan,
               titleSize: 22,
               actions: [
+                RoundAction(
+                  label: 'Nuevo Chat',
+                  onTap: _startNewChat,
+                  child: Icon(PhosphorIconsRegular.plus, size: 17, color: gc.text),
+                ),
+                RoundAction(
+                  label: 'Historial',
+                  onTap: _openHistorySheet,
+                  child: Icon(PhosphorIconsRegular.clockCounterClockwise, size: 17, color: gc.text),
+                ),
+                RoundAction(
+                  label: 'Exportar Conversación',
+                  onTap: _exportConversation,
+                  child: Icon(PhosphorIconsRegular.shareNetwork, size: 17, color: gc.text),
+                ),
                 RoundAction(
                   label: 'Configurar IA',
                   onTap: _openConfigSheet,
