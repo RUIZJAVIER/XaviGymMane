@@ -140,14 +140,17 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   void _initNewSession() {
     final place = fit.activePlace;
     final days = place?.targetDaysPerWeek ?? 3;
-    final placeName = place?.name ?? 'General';
+    final placeName = place?.name ?? 'Sin lugar activo';
+    final gear = [for (final id in fit.gearHere) t.equipment(id)]..sort();
+    final gearText = gear.isEmpty ? 'sin equipamiento cargado' : gear.join(', ');
     final welcome = _Message(
       role: 'assistant',
-      text: '¡Hola! Soy tu asistente de entrenamiento en GymMane.\n\n'
+      text: '¡Hola! Soy tu entrenador personal en GymMane.\n\n'
           '📍 Lugar activo: $placeName\n'
           '📅 Meta: $days días/semana (Frecuencia 2)\n'
-          '🎒 Equipamiento: ${fit.gearHere.join(', ')}\n\n'
-          '¿Qué deseas entrenar hoy o qué rutina te gustaría diseñar?',
+          '🎒 Equipamiento disponible: $gearText\n\n'
+          'Con este contexto ($placeName · $days días · $gearText), '
+          '¿qué te gustaría entrenar hoy o en qué parte de tu proceso quieres que nos enfoquemos?',
     );
     final session = _ChatSession(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -926,6 +929,135 @@ Ejemplo exacto:
     );
   }
 
+  bool _isTableRow(String line) {
+    final s = line.trim();
+    var pipes = 0;
+    for (final rune in s.runes) {
+      if (rune == 0x7C) pipes++; // '|'
+    }
+    return pipes >= 2;
+  }
+
+  bool _isTableSeparator(String line) {
+    final s = line.trim();
+    if (!s.contains('-')) return false;
+    final body = s.replaceAll(RegExp(r'^\|'), '').replaceAll(RegExp(r'\|$'), '');
+    return body.split('|').every((c) => RegExp(r'^\s*:?-{2,}:?\s*$').hasMatch(c));
+  }
+
+  bool _startsTable(List<String> lines, int i) =>
+      _isTableRow(lines[i]) && i + 1 < lines.length && _isTableSeparator(lines[i + 1]);
+
+  List<List<String>> _parseTable(List<String> lines) {
+    List<String> cells(String line) {
+      var s = line.trim();
+      if (s.startsWith('|')) s = s.substring(1);
+      if (s.endsWith('|') && s.length > 1) s = s.substring(0, s.length - 1);
+      return s.split('|').map((c) => c.trim()).toList();
+    }
+
+    final out = <List<String>>[];
+    for (final line in lines) {
+      final c = cells(line);
+      final isSeparator = c.every((x) => RegExp(r'^:?-{2,}:?$').hasMatch(x));
+      if (isSeparator) continue;
+      out.add(c);
+    }
+    return out;
+  }
+
+  Widget _markdownTable(GymColors gc, List<String> lines, bool isUser) {
+    final rows = _parseTable(lines);
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final cols = rows.fold<int>(0, (m, r) => r.length > m ? r.length : m);
+    final bg = isUser ? gc.emberSoft : gc.bgRaised;
+    String cell(List<String> r, int c) => c < r.length ? r[c] : '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Stack(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Table(
+              defaultColumnWidth: const IntrinsicColumnWidth(),
+              border: TableBorder.all(color: gc.border, width: 1),
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+              children: [
+                for (var r = 0; r < rows.length; r++)
+                  TableRow(
+                    decoration: r == 0 ? BoxDecoration(color: gc.bgRaised2) : null,
+                    children: [
+                      for (var c = 0; c < cols; c++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          child: SelectableText(
+                            cell(rows[r], c),
+                            style: AppTheme.f(11.5,
+                                weight: r == 0 ? FontWeight.w800 : FontWeight.w500,
+                                color: gc.text,
+                                height: 1.35),
+                          ),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 20,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [bg.withValues(alpha: 0), bg],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _contentWidgets(GymColors gc, String text, bool isUser) {
+    final lines = text.split('\n');
+    final out = <Widget>[];
+    final buffer = StringBuffer();
+
+    void flushText() {
+      final s = buffer.toString().trimRight();
+      if (s.isNotEmpty) {
+        out.add(SelectableText(
+          s,
+          style: AppTheme.f(13.5, weight: FontWeight.w500, color: gc.text, height: 1.45),
+        ));
+      }
+      buffer.clear();
+    }
+
+    var i = 0;
+    while (i < lines.length) {
+      if (_startsTable(lines, i)) {
+        final table = <String>[];
+        while (i < lines.length && _isTableRow(lines[i])) {
+          table.add(lines[i]);
+          i++;
+        }
+        flushText();
+        out.add(_markdownTable(gc, table, isUser));
+      } else {
+        buffer.writeln(lines[i]);
+        i++;
+      }
+    }
+    flushText();
+    return out;
+  }
+
   Widget _buildBubble(GymColors gc, _Message msg) {
     final isUser = msg.role == 'user';
     final routineRegex = RegExp(r'<routine>([\s\S]*?)</routine>');
@@ -958,13 +1090,7 @@ Ejemplo exacto:
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SelectableText(
-                    cleanText,
-                    style: AppTheme.f(13.5,
-                        weight: FontWeight.w500,
-                        color: isUser ? gc.text : gc.text,
-                        height: 1.45),
-                  ),
+                  ..._contentWidgets(gc, cleanText, isUser),
                   if (matches.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     PrimaryButton(

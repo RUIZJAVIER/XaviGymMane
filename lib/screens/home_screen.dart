@@ -195,7 +195,14 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
+        RoundAction(
+          label: 'Asistente IA',
+          size: 44,
+          onTap: fit.goAiPlan,
+          child: Icon(PhosphorIconsRegular.sparkle, size: 19, color: gc.ember),
+        ),
+        const SizedBox(width: 10),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: fit.goProgress,
