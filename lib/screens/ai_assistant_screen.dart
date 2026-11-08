@@ -103,6 +103,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       _messages.clear();
       _messages.addAll(_currentSession!.messages);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
   }
 
   void _restoreLegacyHistory() {
@@ -399,6 +403,7 @@ Tu tono debe ser cercano, motivador, paciente, claro y sin enredos innecesarios.
 - PROHIBIDO el uso de asteriscos, tanto uno como dos seguidos. No los uses para negritas, cursivas, viñetas ni énfasis. No hay excepciones en el texto conversacional.
 - No uses tablas Markdown ni bloques de código para la conversación. Los bloques <routine> son la única excepción y van fuera de vallas de código.
 - Para listas usa guiones "-" o numeración "1.", "2.".
+- Al generar o actualizar una rutina, entrega el bloque <routine> completo. No añadas advertencias, dudas ni texto sobre ejercicios desconocidos.
 
 # LOS 6 PILARES FUNDAMENTALES QUE DEBES ENSEÑAR Y MANTENER EN CUENTA
 
@@ -486,7 +491,8 @@ $routineContext
    - "warmup": 1 (opcional, solo en el compuesto principal)
    - "rest" (segundos, ej: 90)
    - "kind" (opcional: "normal", "warmup", "failure")
-   - Si el ejercicio NO existe ya en la rutina guardada, añade OBLIGATORIAMENTE TODOS estos campos:
+   - PROHIBIDO responder con texto, advertencias, dudas o preguntas cuando un ejercicio no exista o no lo conozcas. No lo omitas, no lo sustituyas por prosa y no pidas confirmación: inclúyelo en el JSON con todos los metadatos; la app lo creará en silencio.
+   - Incluye OBLIGATORIAMENTE en TODOS los ejercicios estos campos (aunque ya existan; la app reutiliza el ID y no duplica):
      "aliases": arreglo con la traducción al inglés (si el nombre no está en inglés) y al menos otro nombre común por el que se conozca (campo "También se llama").
      "target_muscle": uno de chest, shoulders, biceps, abdomen, obliques, quads, forearm, trapezius, back, lowerback, triceps, glutes, hamstrings, calves.
      "equipment": uno de Barbell, Dumbbell, Cable, Machine, Bodyweight, Weighted, Band, Kettlebell, Rings, Other.
@@ -495,13 +501,14 @@ $routineContext
      "steps": arreglo de 1 a 5 pasos claros y breves.
      "mode": "" para fuerza normal, "cardio" para distancia/ritmo, "time" para isométricos por tiempo.
      "secondary": arreglo de músculos secundarios con los mismos ids que target_muscle; puede ser [].
-     Si dudas si existe, incluye igualmente todos los campos; la app reutiliza el ID si el nombre coincide.
+     No necesitas decidir si existe: incluye siempre todos los campos; la app reutiliza el ID si el nombre o alias coincide y crea el ejercicio si no existe.
    Incluye en el JSON raíz: "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de enteros, 1=Lun … 7=Dom).
    El primer elemento de "exercises" debe ser siempre el calentamiento dinámico de esa sesión.
 Ejemplo exacto: 
 <routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Arm Circles", "sets": 2, "reps": 15, "rest": 30, "target_muscle": "shoulders", "equipment": "Bodyweight", "category": "calisthenics"}, {"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90, "target_muscle": "chest", "equipment": "Dumbbell", "category": "strength"}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60, "target_muscle": "back", "equipment": "Dumbbell", "category": "strength"}]}</routine>
 Ejemplo de ejercicio nuevo dentro de "exercises":
-{"name": "Zercher Squat con banda", "sets": 3, "reps": 10, "rest": 60, "aliases": ["Band Zercher Squat", "Sentadilla Zercher con banda"], "target_muscle": "quads", "equipment": "Band", "category": "strength", "level": "Intermediate", "steps": ["Pisa la banda con los pies", "Sujeta la banda a la altura del pecho", "Haz sentadilla manteniendo el torso erguido"], "mode": "", "secondary": ["glutes", "abdomen"]}''';
+{"name": "Zercher Squat con banda", "sets": 3, "reps": 10, "rest": 60, "aliases": ["Band Zercher Squat", "Sentadilla Zercher con banda"], "target_muscle": "quads", "equipment": "Band", "category": "strength", "level": "Intermediate", "steps": ["Pisa la banda con los pies", "Sujeta la banda a la altura del pecho", "Haz sentadilla manteniendo el torso erguido"], "mode": "", "secondary": ["glutes", "abdomen"]}
+En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos; el ejemplo de rutina anterior se abrevia solo para mostrar la estructura de sesión.''';
   }
 
   Future<void> _send() async {
