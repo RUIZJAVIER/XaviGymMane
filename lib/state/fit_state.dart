@@ -993,15 +993,38 @@ class FitState extends FitCore
     return (added: result.added, missed: result.missed, readable: true);
   }
 
+  // shortcut: los ítems con metadatos exigen nombre o alias exacto; sin fuzzy, actualizar si la IA varía demasiado los nombres.
+  Exercise? _exerciseByExactName(String name) {
+    final key = searchKey(name);
+    return key.isEmpty
+        ? null
+        : allExercises
+            .where((e) => searchKey(e.name) == key || e.aliases.any((a) => searchKey(a) == key))
+            .firstOrNull;
+  }
+
   Exercise? _planExercise(PlanItem item, {bool create = false}) {
     final byId = item.id == null ? null : exerciseById(item.id!);
     if (byId != null && (item.name.isEmpty || !isCustom(byId.id) || byId.name == item.name)) return byId;
-    final byName = matchExerciseByName(item.name);
+    final byName = _exerciseByExactName(item.name);
     if (byName != null) return byName;
+    if ((item.muscle ?? '').isEmpty) {
+      final fuzzy = matchExerciseByName(item.name);
+      if (fuzzy != null) return fuzzy;
+    }
     if (!create || (item.muscle ?? '').isEmpty) return null;
-    final muscle = kMuscles.any((m) => m.id == item.muscle) ? item.muscle! : 'chest';
-    final gear = kEquipment.contains(item.equipment) ? item.equipment! : 'Other';
-    final level = kDifficulties.contains(item.level) ? item.level! : 'Beginner';
+    final muscle = kMuscles.any((m) => m.id == (item.muscle ?? '').toLowerCase())
+        ? item.muscle!.toLowerCase()
+        : (guessMuscle(item.name) ?? 'chest');
+    final gear = kEquipment.firstWhere(
+      (e) => e.toLowerCase() == (item.equipment ?? '').toLowerCase(),
+      orElse: () => 'Other',
+    );
+    final level = kDifficulties.firstWhere(
+      (d) => d.toLowerCase() == (item.level ?? '').toLowerCase(),
+      orElse: () => 'Beginner',
+    );
+    final category = (item.category ?? '').toLowerCase();
     final id = addCustomExercise(
         name: item.name,
         primary: muscle,
@@ -1009,7 +1032,9 @@ class FitState extends FitCore
         difficulty: level,
         steps: item.steps,
         mode: item.mode,
-        secondary: item.secondary);
+        secondary: item.secondary,
+        aliases: item.aliases,
+        kind: kExerciseKinds.contains(category) ? category : '');
     return exerciseById(id);
   }
 
@@ -1220,6 +1245,8 @@ class FitState extends FitCore
                         if (ex.secondary.isNotEmpty) 'secondary': ex.secondary,
                         'equipment': ex.equipment,
                         'level': ex.difficulty,
+                        if (ex.kind.isNotEmpty) 'category': ex.kind,
+                        if (ex.aliases.isNotEmpty) 'aliases': ex.aliases,
                         if (ex.steps.isNotEmpty) 'steps': ex.steps,
                         if (modeOf(id).isNotEmpty) 'track': modeOf(id),
                       },

@@ -22,9 +22,11 @@ class PlanItem {
     this.muscle,
     this.equipment,
     this.level,
+    this.category,
     this.steps = const [],
     this.mode = '',
     this.secondary = const [],
+    this.aliases = const [],
     this.ladder = const [],
   });
   final String name;
@@ -39,8 +41,10 @@ class PlanItem {
   final List<String> secondary;
   final String? equipment;
   final String? level;
+  final String? category;
   final List<String> steps;
   final String mode;
+  final List<String> aliases;
   final List<String> ladder;
 }
 
@@ -348,7 +352,8 @@ List<PlanItem> _items(Object? raw, bool lb) {
     final itemLb = lb || _isLb(_value(entry, ['unit', 'units'])) || _value(entry, ['lbs', 'lb']) != null;
     final custom = _value(entry, ['custom', 'own', 'details']);
     final info = custom is Map<Object?, Object?> ? custom : const <Object?, Object?>{};
-    final steps = _value(info, ['steps', 'howto', 'pasos', 'instructions']);
+    final meta = <Object?, Object?>{...entry, ...info};
+    final steps = _value(meta, ['steps', 'howto', 'pasos', 'instructions']);
     final superset = _value(entry, ['superset', 'supersetwithnext', 'linked', 'chain']);
     final sets = _int(_value(entry, _setKeys));
     final reps = _reps(_value(entry, _repKeys));
@@ -374,13 +379,19 @@ List<PlanItem> _items(Object? raw, bool lb) {
       restSec: _seconds(_value(entry, _restKeys)),
       superset: superset == true || (superset is String && superset.toLowerCase() == 'true'),
       plan: plan,
-      muscle: _string(_value(info, ['muscle', 'primary', 'musculo'])),
-      equipment: _string(_value(info, ['equipment', 'material', 'gear'])),
-      level: _string(_value(info, ['level', 'difficulty', 'nivel'])),
+      muscle: _string(_value(meta, ['muscle', 'primary', 'targetmuscle', 'musculo'])),
+      equipment: _string(_value(meta, ['equipment', 'material', 'gear'])),
+      level: _string(_value(meta, ['level', 'difficulty', 'nivel'])),
+      category: _string(_value(meta, ['category', 'categoria'])),
       steps: steps is List ? steps.whereType<String>().toList() : const [],
-      mode: _string(_value(info, ['track', 'mode', 'type'])),
-      secondary: switch (_value(info, ['secondary', 'secondarymuscles'])) {
+      mode: _string(_value(meta, ['track', 'mode'])),
+      secondary: switch (_value(meta, ['secondary', 'secondarymuscles'])) {
         final List list => list.whereType<String>().toList(),
+        _ => const [],
+      },
+      aliases: switch (_value(meta, ['aliases', 'alias', 'alsoknownas', 'aka', 'altnames', 'nombresalternativos', 'tambinsellama'])) {
+        final List list => list.whereType<String>().toList(),
+        final String s when s.trim().isNotEmpty => [s.trim()],
         _ => const [],
       },
       ladder: switch (_value(entry, ['progression', 'ladder', 'progresion', 'progressao', 'progressione'])) {
@@ -428,9 +439,11 @@ List<PlanItem> _mergeRepeats(List<PlanItem> items) {
       muscle: first.muscle,
       equipment: first.equipment,
       level: first.level,
+      category: first.category,
       steps: first.steps,
       mode: first.mode,
       secondary: first.secondary,
+      aliases: first.aliases,
       ladder: first.ladder,
     );
   }

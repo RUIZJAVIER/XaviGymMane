@@ -69,6 +69,32 @@ void main() {
     test('un archivo ilegible se distingue de uno sin coincidencias', () {
       expect(fit.importPlan('no soy json').readable, isFalse);
     });
+
+    test('crea ejercicios nuevos con los metadatos del JSON y reutiliza su ID', () {
+      final first = fit.importPlan('{"name":"Nueva","exercises":['
+          '{"name":"Zercher Squat con banda","sets":3,"reps":10,'
+          '"aliases":["Band Zercher Squat","Sentadilla Zercher con banda"],'
+          '"target_muscle":"quads","equipment":"Band","category":"strength",'
+          '"level":"Intermediate","steps":["Pisa la banda con los pies","Haz sentadilla"],'
+          '"mode":"","secondary":["glutes"]}]}');
+      expect(first.missed, isEmpty);
+      final ex = fit.customExercises.single;
+      expect(ex.primary, 'quads');
+      expect(ex.equipment, 'Band');
+      expect(ex.kind, 'strength');
+      expect(ex.difficulty, 'Intermediate');
+      expect(ex.steps, ['Pisa la banda con los pies', 'Haz sentadilla']);
+      expect(ex.secondary, ['glutes']);
+      expect(ex.aliases, contains('Band Zercher Squat'));
+      expect(fit.routines.single.exerciseIds, [ex.id]);
+
+      final again = fit.importPlan('{"name":"Otra","exercises":['
+          '{"name":"Zercher Squat con banda","sets":2}]}');
+      expect(again.missed, isEmpty);
+      expect(fit.customExercises.length, 1);
+      final other = fit.routines.firstWhere((r) => r.name == 'Otra');
+      expect(other.exerciseIds, [ex.id]);
+    });
   });
 
   test('la lista para la IA lleva cabecera y ejercicios', () {
