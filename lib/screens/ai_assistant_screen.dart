@@ -1,6 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -15,17 +19,39 @@ import '../theme/app_theme.dart';
 import '../widgets/liquid_notch.dart';
 import '../widgets/ui_kit.dart';
 
+class _Attachment {
+  _Attachment({required this.name, required this.path, required this.bytes, required this.mime});
+  final String name;
+  final String? path;
+  final Uint8List? bytes;
+  final String mime;
+
+  String get label => mime.startsWith('image/') ? 'Imagen adjunta' : mime == 'application/pdf' ? 'PDF adjunto' : 'Documento adjunto';
+}
+
 class _Message {
-  _Message({required this.role, required this.text, this.routines = const []});
+  _Message({required this.role, required this.text, this.routines = const [], this.attachment});
   final String role;
   final String text;
   final List<PlanRoutine> routines;
+  final _Attachment? attachment;
 
-  Map<String, dynamic> toJson() => {'role': role, 'text': text};
-  factory _Message.fromJson(Map<String, dynamic> j) => _Message(
-        role: j['role'] as String? ?? 'user',
-        text: j['text'] as String? ?? '',
-      );
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'text': text,
+        if (attachment != null) 'attachment': {
+          'name': attachment!.name,
+          'mime': attachment!.mime,
+          'path': attachment!.path,
+        },
+      };
+  factory _Message.fromJson(Map<String, dynamic> j) {
+    final a = j['attachment'];
+    final att = a is Map
+        ? _Attachment(name: '${a['name'] ?? 'archivo'}', path: a['path'] as String?, bytes: null, mime: '${a['mime'] ?? ''}')
+        : null;
+    return _Message(role: j['role'] as String? ?? 'user', text: j['text'] as String? ?? '', attachment: att);
+  }
 }
 
 class _ChatSession {
@@ -71,12 +97,30 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   final List<_Message> _messages = [];
   List<_ChatSession> _sessions = [];
   _ChatSession? _currentSession;
+  _Attachment? _pendingAttachment;
   bool _loading = false;
+  bool _showScrollDown = false;
 
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScrollEdge);
     _loadSessions();
+  }
+
+  void _onScrollEdge() {
+    if (!_scroll.hasClients) return;
+    final show = _scroll.position.pixels < _scroll.position.maxScrollExtent - 120;
+    if (show != _showScrollDown) setState(() => _showScrollDown = show);
+  }
+
+  void _goToBottom() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      _scroll.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _loadSessions() {
@@ -364,6 +408,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScrollEdge);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -379,6 +424,111 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         );
       }
     });
+  }
+
+  String _attachmentContext(_Attachment att) => '${att.label}: ${att.name}.';
+
+  Future<void> _pickAttachment() async {
+    final kind = await showAppSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: sheetPad(ctx),
+        decoration: sheetDecoration(context.gc),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 16),
+            SheetTitle('Adjuntar archivo'),
+            const SizedBox(height: 8),
+            Text(
+              'El adjunto se muestra como previsualización antes de enviar. Solo se guarda el nombre y tipo.',
+              textAlign: TextAlign.center,
+              style: AppTheme.f(12.5, color: context.gc.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            OptionGroup([
+              OptionItem('Foto o galería', icon: PhosphorIconsRegular.image, onTap: () => Navigator.pop(ctx, 'image')),
+              OptionItem('PDF o documento', icon: PhosphorIconsRegular.fileText, onTap: () => Navigator.pop(ctx, 'file')),
+            ]),
+          ],
+        ),
+      ),
+    );
+    if (kind == null || !mounted) return;
+
+    try {
+      if (kind == 'image') {
+        final shot = await ImagePicker().pickImage(source: ImageSource.gallery);
+        if (shot == null || !mounted) return;
+        final bytes = await File(shot.path).readAsBytes();
+        setState(() => _pendingAttachment = _Attachment(
+              name: shot.name,
+              path: shot.path,
+              bytes: bytes,
+              mime: shot.mimeType ?? (shot.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'),
+            ));
+      } else {
+        final result = await FilePicker.platform.pickFiles(withData: true);
+        if (result == null || result.files.isEmpty || !mounted) return;
+        final f = result.files.single;
+        final bytes = f.bytes ?? (f.path == null ? null : await File(f.path!).readAsBytes());
+        final lower = f.name.toLowerCase();
+        final mime = lower.endsWith('.pdf') ? 'application/pdf' : (f.extension == 'txt' || f.extension == 'md' || f.extension == 'csv' ? 'text/plain' : 'application/octet-stream');
+        setState(() => _pendingAttachment = _Attachment(name: f.name, path: f.path, bytes: bytes, mime: mime));
+      }
+      _scrollToBottom();
+    } catch (_) {
+      if (mounted) showNotchToast(context, 'No se pudo adjuntar el archivo', accent: context.gc.warn, sound: false);
+    }
+  }
+
+  Widget _pendingPreview(GymColors gc) {
+    final att = _pendingAttachment;
+    if (att == null) return const SizedBox.shrink();
+    final isImage = att.mime.startsWith('image/');
+    final image = isImage && att.bytes != null ? Image.memory(att.bytes!, height: 84, fit: BoxFit.cover) : null;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: gc.bgRaised2,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gc.border.withValues(alpha: 0.6)),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: image ?? SizedBox(
+              width: 42,
+              height: 42,
+              child: Icon(
+                att.mime == 'application/pdf' ? PhosphorIconsRegular.filePdf : PhosphorIconsRegular.fileText,
+                size: 20,
+                color: gc.ember,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(att.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTheme.f(12.5, weight: FontWeight.w700, color: gc.text)),
+                Text(att.label, style: AppTheme.f(11, color: gc.textSecondary)),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(PhosphorIconsRegular.x, size: 16, color: gc.textSecondary),
+            onPressed: () => setState(() => _pendingAttachment = null),
+          ),
+        ],
+      ),
+    );
   }
 
   String _buildSystemPrompt() {
@@ -487,13 +637,13 @@ $routineContext
    - NUNCA pongas el mismo ejercicio pesado como calentamiento de sí mismo con las mismas repeticiones de trabajo.
 4. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, imprime un bloque oculto separado. Si la rutina es de 3 días, imprime TRES bloques <routine>.
 5. ESTRUCTURA DEL JSON Y SERIES: Cada elemento de "exercises" DEBE ser un objeto con:
-   - "name" (obligatorio), "sets" (entero ej: 3), "reps" (entero o rango ej: "8-12")
+   - "name" (obligatorio, nombre principal en español, ej: "Remo con mancuerna"), "sets" (entero ej: 3), "reps" (entero o rango ej: "8-12")
    - "warmup": 1 (opcional, solo en el compuesto principal)
    - "rest" (segundos, ej: 90)
    - "kind" (opcional: "normal", "warmup", "failure")
    - PROHIBIDO responder con texto, advertencias, dudas o preguntas cuando un ejercicio no exista o no lo conozcas. No lo omitas, no lo sustituyas por prosa y no pidas confirmación: inclúyelo en el JSON con todos los metadatos; la app lo creará en silencio.
    - Incluye OBLIGATORIAMENTE en TODOS los ejercicios estos campos (aunque ya existan; la app reutiliza el ID y no duplica):
-     "aliases": arreglo con la traducción al inglés (si el nombre no está en inglés) y al menos otro nombre común por el que se conozca (campo "También se llama").
+     "aliases": OBLIGATORIO, arreglo con la traducción al inglés y sinónimos populares (ej. nombre "Remo con mancuerna", aliases ["Dumbbell Row", "Single Arm Row"]).
      "target_muscle": uno de chest, shoulders, biceps, abdomen, obliques, quads, forearm, trapezius, back, lowerback, triceps, glutes, hamstrings, calves.
      "equipment": uno de Barbell, Dumbbell, Cable, Machine, Bodyweight, Weighted, Band, Kettlebell, Rings, Other.
      "category": uno de strength, calisthenics, cardio, stretch, sport.
@@ -505,19 +655,21 @@ $routineContext
    Incluye en el JSON raíz: "name", "group" (ej. "Torso", "Pierna", "Full Body") y "days" (arreglo de enteros, 1=Lun … 7=Dom).
    El primer elemento de "exercises" debe ser siempre el calentamiento dinámico de esa sesión.
 Ejemplo exacto: 
-<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Arm Circles", "sets": 2, "reps": 15, "rest": 30, "target_muscle": "shoulders", "equipment": "Bodyweight", "category": "calisthenics"}, {"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90, "target_muscle": "chest", "equipment": "Dumbbell", "category": "strength"}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60, "target_muscle": "back", "equipment": "Dumbbell", "category": "strength"}]}</routine>
+<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Círculos de brazos", "aliases": ["Arm Circles"], "sets": 2, "reps": 15, "rest": 30, "target_muscle": "shoulders", "equipment": "Bodyweight", "category": "calisthenics"}, {"name": "Press de banca con mancuernas", "aliases": ["Dumbbell Bench Press"], "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90, "target_muscle": "chest", "equipment": "Dumbbell", "category": "strength"}, {"name": "Remo con mancuerna a una mano", "aliases": ["One-Arm Dumbbell Row", "Single Arm Row"], "sets": 3, "reps": 10, "rest": 60, "target_muscle": "back", "equipment": "Dumbbell", "category": "strength"}]}</routine>
 Ejemplo de ejercicio nuevo dentro de "exercises":
-{"name": "Zercher Squat con banda", "sets": 3, "reps": 10, "rest": 60, "aliases": ["Band Zercher Squat", "Sentadilla Zercher con banda"], "target_muscle": "quads", "equipment": "Band", "category": "strength", "level": "Intermediate", "steps": ["Pisa la banda con los pies", "Sujeta la banda a la altura del pecho", "Haz sentadilla manteniendo el torso erguido"], "mode": "", "secondary": ["glutes", "abdomen"]}
+{"name": "Sentadilla Zercher con banda", "sets": 3, "reps": 10, "rest": 60, "aliases": ["Band Zercher Squat", "Zercher Squat"], "target_muscle": "quads", "equipment": "Band", "category": "strength", "level": "Intermediate", "steps": ["Pisa la banda con los pies", "Sujeta la banda a la altura del pecho", "Haz sentadilla manteniendo el torso erguido"], "mode": "", "secondary": ["glutes", "abdomen"]}
 En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos; el ejemplo de rutina anterior se abrevia solo para mostrar la estructura de sesión.''';
   }
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty || _loading) return;
+    final att = _pendingAttachment;
+    if ((text.isEmpty && att == null) || _loading) return;
 
     _input.clear();
     setState(() {
-      _messages.add(_Message(role: 'user', text: text));
+      _pendingAttachment = null;
+      _messages.add(_Message(role: 'user', text: text, attachment: att));
       _loading = true;
     });
     if (_currentSession != null &&
@@ -528,10 +680,22 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
     _scrollToBottom();
 
     try {
-      final history = [
+      final history = <AiMessage>[
         for (final m in _messages)
           if (m.role == 'user' || m.role == 'assistant')
-            {'role': m.role, 'content': m.text},
+            AiMessage(
+              role: m.role,
+              content: m.text,
+              attachments: [
+                if (m.attachment != null)
+                  AiAttachment(
+                    name: m.attachment!.name,
+                    mime: m.attachment!.mime,
+                    path: m.attachment!.path,
+                    bytes: m.attachment!.bytes,
+                  ),
+              ],
+            ),
       ];
 
       final reply = await AiClient.instance.chatCompletion(
@@ -876,11 +1040,35 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              itemCount: _messages.length,
-              itemBuilder: (_, i) => _buildBubble(gc, _messages[i]),
+            child: Stack(
+              children: [
+                ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  itemCount: _messages.length,
+                  itemBuilder: (_, i) => _buildBubble(gc, _messages[i]),
+                ),
+                if (_showScrollDown)
+                  Positioned(
+                    right: 16,
+                    bottom: 14,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _goToBottom,
+                      child: Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: gc.bgRaised2,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: gc.border.withValues(alpha: 0.7)),
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 10, offset: const Offset(0, 4))],
+                        ),
+                        child: Icon(PhosphorIconsBold.caretDown, size: 19, color: gc.ember),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           if (_loading)
@@ -895,6 +1083,7 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
                 ],
               ),
             ),
+          if (_pendingAttachment != null) _pendingPreview(gc),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             alignment: Alignment.centerLeft,
@@ -928,6 +1117,25 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
             ),
             child: Row(
               children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _loading ? null : _pickAttachment,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _pendingAttachment == null ? gc.bgRaised2 : gc.emberSoft,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _pendingAttachment == null ? gc.border.withValues(alpha: 0.7) : gc.ember.withValues(alpha: 0.35)),
+                    ),
+                    child: Icon(
+                      _pendingAttachment == null ? PhosphorIconsRegular.link : PhosphorIconsFill.link,
+                      size: 19,
+                      color: _pendingAttachment == null ? gc.textSecondary : gc.ember,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _input,
@@ -1103,6 +1311,8 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
     final routineRegex = RegExp(r'<routine>([\s\S]*?)</routine>');
     final matches = routineRegex.allMatches(msg.text).toList();
     final cleanText = matches.isNotEmpty ? msg.text.replaceAll(routineRegex, '').trim() : msg.text;
+    final att = msg.attachment;
+    final attImage = att != null && att.mime.startsWith('image/') && att.path != null && File(att.path!).existsSync() ? Image.file(File(att.path!), height: 140, fit: BoxFit.cover) : null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -1130,6 +1340,34 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (att != null) ...[
+                    if (attImage != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: attImage,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    Row(
+                      children: [
+                        Icon(
+                          att.mime == 'application/pdf' ? PhosphorIconsRegular.filePdf : PhosphorIconsRegular.fileText,
+                          size: 14,
+                          color: gc.ember,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            att.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.f(11.5, weight: FontWeight.w700, color: gc.text),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (cleanText.isNotEmpty || matches.isNotEmpty) const SizedBox(height: 8),
+                  ],
                   ..._contentWidgets(gc, cleanText, isUser),
                   if (matches.isNotEmpty) ...[
                     const SizedBox(height: 12),
@@ -1143,14 +1381,8 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
                       fg: gc.onEmber,
                       onTap: () {
                         final rawBlocks = matches.map((m) => m.group(0)!).join('\n');
-                        fit.importPlan(rawBlocks, schedule: true, replace: true);
-                        showNotchToast(
-                          context,
-                          matches.length > 1
-                              ? '${matches.length} rutinas añadidas a tu plan con éxito'
-                              : 'Rutina añadida a tu plan con éxito',
-                          icon: PhosphorIconsFill.checkCircle,
-                          accent: gc.sage,
+                        _applyRoutine(
+                          msg.routines.isNotEmpty ? msg.routines : _extractRoutines(rawBlocks),
                         );
                       },
                     ),

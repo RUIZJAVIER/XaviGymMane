@@ -2,7 +2,11 @@ import '../catalog/exercise_aliases.dart';
 import '../catalog/exercise_catalog.dart' show kFilterMuscles;
 import '../models/exercise.dart';
 
-const _stop = {'the', 'a', 'an', 'with', 'on', 'to', 'and', 'or', 'in', 'for', 'v', 'var'};
+const _stop = {
+  'the', 'a', 'an', 'with', 'on', 'to', 'and', 'or', 'in', 'for', 'v', 'var',
+  'con', 'de', 'del', 'la', 'el', 'los', 'las', 'en', 'para', 'por', 'y', 'o',
+  'un', 'una', 'unos', 'unas', 'al', 'sin', 'sobre', 'desde', 'hasta', 'peso',
+};
 
 const _syn = {
   'lat': 'lateral', 'lats': 'lateral',
@@ -23,6 +27,67 @@ const _syn = {
   'lever': 'machine', 'smith': 'machine', 'skullcrusher': 'lying triceps extension',
   'skullcrushers': 'lying triceps extension',
   'rdl': 'romanian deadlift', 'sldl': 'stiff leg deadlift',
+  // Español
+  'remo': 'row', 'remos': 'row',
+  'mancuerna': 'dumbbell', 'mancuernas': 'dumbbell',
+  'barra': 'barbell', 'barras': 'barbell',
+  'sentadilla': 'squat', 'sentadillas': 'squat',
+  'muerto': 'deadlift', 'rumano': 'romanian', 'rumana': 'romanian',
+  'bulgara': 'bulgarian',
+  'banca': 'bench',
+  'militar': 'military',
+  'elevacion': 'raise', 'elevaciones': 'raise',
+  'frontal': 'front',
+  'inclinado': 'incline', 'declinado': 'decline', 'sentado': 'seated',
+  'extension': 'extension', 'extensiones': 'extension',
+  'flexion': 'push up', 'flexiones': 'push up',
+  'dominada': 'pull up', 'dominadas': 'pull up',
+  'jalon': 'pulldown', 'jalones': 'pulldown',
+  'polea': 'cable', 'poleas': 'cable',
+  'banda': 'band', 'bandas': 'band',
+  'cuerpo': 'bodyweight', 'corporal': 'bodyweight',
+  'gemelo': 'calf', 'gemelos': 'calf',
+  'talon': 'calf', 'talones': 'calf',
+  'gluteo': 'glute', 'gluteos': 'glute',
+  'puente': 'bridge',
+  'cuadriceps': 'quad',
+  'isquiotibial': 'hamstring', 'isquiotibiales': 'hamstring',
+  'pierna': 'leg', 'piernas': 'leg',
+  'brazo': 'arm', 'brazos': 'arm',
+  'hombro': 'shoulder', 'hombros': 'shoulder',
+  'lateral': 'lateral', 'laterales': 'lateral',
+  'pecho': 'chest',
+  'espalda': 'back',
+  'biceps': 'biceps',
+  'triceps': 'triceps',
+  'antebrazo': 'forearm',
+  'trapecio': 'trapezius',
+  'abdominal': 'abdominal', 'abdominales': 'abdominal',
+  'oblicuo': 'oblique', 'oblicuos': 'oblique',
+  'lumbar': 'lower back',
+  'hiperextension': 'hyperextension',
+  'plancha': 'plank',
+  'fondos': 'dip',
+  'zancada': 'lunge', 'zancadas': 'lunge',
+  'prensa': 'press',
+  'apertura': 'fly', 'aperturas': 'fly',
+  'encogimiento': 'shrug', 'encogimientos': 'shrug',
+  'estiramiento': 'stretch', 'estiramientos': 'stretch',
+  'movilidad': 'mobility',
+  'correr': 'run', 'trotar': 'run', 'jogging': 'run', 'running': 'run',
+  'caminar': 'walk', 'walking': 'walk',
+  'bici': 'bike', 'bicicleta': 'bike', 'cicling': 'bike', 'cycling': 'bike',
+  'cinta': 'treadmill', 'burpees': 'burpee', 'sprints': 'sprint',
+  'natacion': 'swim', 'swimming': 'swim',
+  'cuerda': 'rope',
+  'saltar': 'jump', 'salto': 'jump',
+  'boxeo': 'boxing',
+  'deporte': 'sport',
+  'baloncesto': 'basketball',
+  'futbol': 'football',
+  'tenis': 'tennis',
+  'calistenia': 'calisthenics',
+  'rodillo': 'foam roll',
 };
 
 const _equipment = {
@@ -149,18 +214,92 @@ const _muscleHints = <List<String>, String>{
   ['biceps', 'curl', 'preacher', 'chin up']: 'biceps',
   ['lateral raise', 'shoulder', 'overhead press', 'military', 'arnold', 'face pull', 'delt', 'upright']:
       'shoulders',
-  ['row', 'pulldown', 'pull up', 'pullover', 'lateral pull']: 'back',
+  ['back', 'row', 'pulldown', 'pull up', 'pullover', 'lateral pull']: 'back',
   ['bench press', 'chest', 'fly', 'pec', 'push up', 'press']: 'chest',
 };
 
 String? guessMuscle(String name) {
-  final flat = ' ${nameTokens(name).join(' ')} ';
+  final tokens = nameTokens(name).toSet();
   for (final entry in _muscleHints.entries) {
     for (final needle in entry.key) {
-      if (flat.contains(' $needle') || flat.contains('$needle ')) return entry.value;
+      final parts = nameTokens(needle);
+      if (parts.isNotEmpty && parts.every(tokens.contains)) return entry.value;
     }
   }
   return null;
+}
+
+String guessKind(String name) {
+  final tokens = nameTokens(name).toSet();
+  bool has(String phrase) => nameTokens(phrase).every(tokens.contains);
+  if (has('cardio') || has('run') || has('walk') || has('bike') || has('treadmill') ||
+      has('jump rope') || has('burpee') || has('sprint') || has('swim')) {
+    return 'cardio';
+  }
+  if (has('stretch') || has('mobility') || has('yoga') || has('foam roll')) return 'stretch';
+  if (has('push up') || has('pull up') || has('chin up') || has('dip') ||
+      has('plank') || has('bodyweight') || has('calisthenics') || has('pistol') || has('hollow')) {
+    return 'calisthenics';
+  }
+  if (has('sport') || has('boxing') || has('kickboxing') || has('basketball') ||
+      has('football') || has('tennis')) {
+    return 'sport';
+  }
+  return 'strength';
+}
+
+// shortcut: traducción solo para ejercicios comunes; la IA debe aportar aliases para el resto.
+const _englishAliases = {
+  'Remo con mancuerna': 'Dumbbell Row',
+  'Remo con mancuerna a una mano': 'One-Arm Dumbbell Row',
+  'Remo con barra': 'Barbell Row',
+  'Press de banca': 'Bench Press',
+  'Press de banca con barra': 'Barbell Bench Press',
+  'Press de banca con mancuernas': 'Dumbbell Bench Press',
+  'Press militar': 'Military Press',
+  'Sentadilla': 'Squat',
+  'Sentadilla con barra': 'Barbell Squat',
+  'Sentadilla bulgara': 'Bulgarian Split Squat',
+  'Sentadilla goblet': 'Goblet Squat',
+  'Peso muerto': 'Deadlift',
+  'Peso muerto rumano': 'Romanian Deadlift',
+  'Curl de biceps': 'Biceps Curl',
+  'Extension de triceps': 'Triceps Extension',
+  'Elevacion lateral': 'Lateral Raise',
+  'Elevacion frontal': 'Front Raise',
+  'Circulos de brazos': 'Arm Circles',
+  'Dominada': 'Pull Up',
+  'Flexion': 'Push Up',
+  'Plancha': 'Plank',
+  'Jalon al pecho': 'Lat Pulldown',
+  'Zancada': 'Lunge',
+  'Puente de gluteo': 'Glute Bridge',
+  'Prensa de piernas': 'Leg Press',
+  'Apertura con mancuernas': 'Dumbbell Fly',
+  'Encogimiento de hombros': 'Shrug',
+  'Fondos': 'Dip',
+};
+
+final Map<String, String> _englishAliasIndex = {
+  for (final entry in _englishAliases.entries) sortedKey(entry.key): entry.value,
+};
+
+String? guessEnglishAlias(String name) {
+  final direct = _englishAliasIndex[sortedKey(name)];
+  if (direct != null) return direct;
+  final core = (nameTokens(name).where((t) => !_equipment.contains(t)).toList()..sort()).join(' ');
+  return _englishAliasIndex[core];
+}
+
+final Map<String, String> _spanishNameIndex = {
+  for (final entry in _englishAliases.entries) sortedKey(entry.value): entry.key,
+};
+
+String? guessSpanishName(String name) {
+  final direct = _spanishNameIndex[sortedKey(name)];
+  if (direct != null) return direct;
+  final core = (nameTokens(name).where((t) => !_equipment.contains(t)).toList()..sort()).join(' ');
+  return _spanishNameIndex[core];
 }
 
 Exercise? matchExercise(String name, Iterable<Exercise> pool) {

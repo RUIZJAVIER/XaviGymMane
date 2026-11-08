@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gymmane/services/exercise_match.dart';
 import 'package:gymmane/services/plan_share.dart';
 import 'package:gymmane/state/fit_state.dart';
 
@@ -40,6 +41,33 @@ void main() {
       expect(parsePlan('hola'), isEmpty);
       expect(parsePlan('{"name":"Push"}'), isEmpty);
     });
+
+    test('una lista plana extrae el alias entre paréntesis', () {
+      final plans = parsePlan('{"name":"Torso","exercises":["Remo con mancuerna (Dumbbell Row)"]}');
+      final item = plans.single.items.single;
+      expect(item.name, 'Remo con mancuerna');
+      expect(item.aliases, ['Dumbbell Row']);
+    });
+
+    test('aguanta comas finales, mapa de ejercicios y lista resumida con comas', () {
+      expect(parsePlan('{"name":"Torso","exercises":["Squat",],}').single.items.single.name, 'Squat');
+      expect(parsePlan('{"name":"Torso","exercises":{"Remo con mancuerna":{"sets":3}}}').single.items.single.name,
+          'Remo con mancuerna');
+      final flat = parsePlan('Remo con mancuerna, Sentadilla búlgara, Press de banca');
+      expect(flat.single.items.map((i) => i.name), ['Remo con mancuerna', 'Sentadilla búlgara', 'Press de banca']);
+    });
+  });
+
+  group('inferencia de metadatos', () {
+    test('reconoce músculo, categoría y alias en español', () {
+      expect(guessMuscle('Remo con mancuerna'), 'back');
+      expect(guessMuscle('Sentadilla búlgara'), 'quads');
+      expect(guessKind('Correr en cinta'), 'cardio');
+      expect(guessKind('Estiramiento de isquiotibiales'), 'stretch');
+      expect(guessKind('Flexiones en el suelo'), 'calisthenics');
+      expect(guessKind('Remo con mancuerna'), 'strength');
+      expect(guessEnglishAlias('Remo con mancuerna'), 'Dumbbell Row');
+    });
   });
 
   group('importar en el estado', () {
@@ -49,21 +77,40 @@ void main() {
       final result = fit.importPlan(
           '{"name":"Empuje","exercises":[{"name":"Barbell Bench Press","sets":5},'
           '{"name":"no existe este ejercicio"}]}');
-      expect(result.added, 1);
-      expect(result.missed, ['no existe este ejercicio']);
+      expect(result.added, 2);
+      expect(result.missed, isEmpty);
       expect(result.readable, isTrue);
       final routine = fit.routines.single;
       expect(routine.name, 'Empuje');
-      expect(routine.exerciseIds.length, 1);
+      expect(routine.exerciseIds.length, 2);
       expect(fit.routineSets(routine, routine.exerciseIds.first), 5);
+      expect(fit.customExercises.single.name, 'no existe este ejercicio');
     });
 
-    test('avisa cuando no hay nada que emparejar', () {
+    test('crea un ejercicio nuevo aunque no haya coincidencias', () {
       final result = fit.importPlan('{"name":"X","exercises":["zzzz qqqq"]}');
-      expect(result.added, 0);
+      expect(result.added, 1);
       expect(result.readable, isTrue);
-      expect(result.missed, ['zzzz qqqq']);
-      expect(fit.routines, isEmpty);
+      expect(result.missed, isEmpty);
+      expect(fit.routines, hasLength(1));
+      expect(fit.customExercises.single.name, 'zzzz qqqq');
+    });
+
+    test('una lista plana nunca descarta ejercicios', () {
+      final result = fit.importPlan('{"name":"Torso","exercises":['
+          '"Remo con mancuerna (Dumbbell Row)","Sentadilla búlgara con mancuernas"]}');
+      expect(result.missed, isEmpty);
+      expect(result.added, 2);
+      expect(fit.routines.single.exerciseIds, hasLength(2));
+    });
+
+    test('importar por alias en español reutiliza el catálogo y no duplica', () {
+      final result = fit.importPlan('{"name":"Torso","exercises":['
+          '{"name":"Remo con mancuerna","aliases":["Dumbbell Row"],"target_muscle":"back",'
+          '"equipment":"Dumbbell","category":"strength","level":"Beginner","steps":["Tira"],"mode":"","secondary":[]}]}');
+      expect(result.missed, isEmpty);
+      expect(fit.customExercises, isEmpty);
+      expect(fit.routines.single.exerciseIds.length, 1);
     });
 
     test('un archivo ilegible se distingue de uno sin coincidencias', () {

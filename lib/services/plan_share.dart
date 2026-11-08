@@ -94,7 +94,10 @@ List<PlanRoutine> parsePlan(String raw) {
   }
 
   final data = _decode(raw);
-  if (data == null) return _parseCsv(raw);
+  if (data == null) {
+    final csv = _parseCsv(raw);
+    return csv.isNotEmpty ? csv : _parseFlatList(raw);
+  }
   final lb = data is Map<Object?, Object?> && _isLb(_value(data, ['unit', 'units', 'unidad']));
   final out = <PlanRoutine>[];
 
@@ -112,7 +115,8 @@ List<PlanRoutine> parsePlan(String raw) {
 
   void addRoutines(List<Object?> list, String group) {
     if (list.isNotEmpty && list.every((e) => e is String)) {
-      out.add(PlanRoutine('', _items(list, lb), group: group));
+      final items = _items(list, lb);
+      if (items.isNotEmpty) out.add(PlanRoutine('', items, group: group));
       return;
     }
     for (final r in list) {
@@ -139,13 +143,73 @@ List<PlanRoutine> parsePlan(String raw) {
       final name = _string(_value(data, _nameKeys));
       addRoutines(nested, program.isNotEmpty ? program : (_listOfRoutines(nested) ? name : ''));
     } else {
+      // Desenvuelve {"routine": {"name": ..., "exercises": [...]}} y equivalentes.
+      for (final entry in data.entries) {
+        final v = entry.value;
+        if (v is Map<Object?, Object?> && _value(v, _listKeys) is List) {
+          addRoutine(v, program);
+          if (out.isNotEmpty) return out;
+        } else if (v is List &&
+            const {'routine', 'workout', 'session', 'data', 'result'}.contains(_norm(entry.key))) {
+          addRoutines(v, program);
+          if (out.isNotEmpty) return out;
+        }
+      }
       addRoutine(data, '');
     }
   } else if (data is List) {
     addRoutines(data, '');
   }
-  return out;
+  return out.isEmpty ? _parseFlatList(raw) : out;
 }
+
+List<PlanRoutine> _parseFlatList(String raw) {
+  final texts = <String>[];
+  var name = '';
+  for (final line in raw.split(RegExp(r'\r?\n')).map((l) => l.trim()).where((l) => l.isNotEmpty)) {
+    final bullet = RegExp(r'^(?:[-*•]|\d+[.)])\s+(.+)$').firstMatch(line);
+    if (bullet != null) {
+      final text = bullet.group(1)!.replaceAll(RegExp(r'[*`]'), '').trim();
+      if (text.isNotEmpty) texts.add(text);
+    } else if (name.isEmpty &&
+        RegExp(r'^(rutina|d[ií]a|day|workout|sesi[oó]n)', caseSensitive: false).hasMatch(line)) {
+      name = line.replaceAll(RegExp(r'^#+\s*'), '').trim();
+    }
+  }
+  if (texts.isEmpty) {
+    final segments = raw
+        .split(RegExp(r'[\n,;]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty && _looksLikeExercise(s))
+        .toList();
+    if (segments.length >= 2) texts.addAll(segments);
+  }
+  final items = _items(texts, false);
+  return items.isEmpty ? const [] : [PlanRoutine(name, items)];
+}
+
+bool _looksLikeExercise(String s) {
+  final t = _fold(s);
+  if (t.length < 3 || t.length > 60) return false;
+  const keys = [
+    'remo', 'sentadilla', 'press', 'curl', 'squat', 'row', 'bench', 'deadlift',
+    'mancuerna', 'plank', 'plancha', 'dominada', 'flexion', 'flexiones', 'zancada',
+    'prensa', 'elevacion', 'elevaciones', 'jalon', 'jalones', 'fondos', 'puente',
+    'thrust', 'calf', 'gemelo', 'biceps', 'triceps', 'hombro', 'pecho', 'espalda',
+    'abdomen', 'abdominales', 'cardio', 'correr', 'caminar', 'bici', 'natacion',
+    'boxeo', 'lunge', 'dip', 'pull', 'push', 'leg', 'hip',
+  ];
+  return keys.any(t.contains);
+}
+
+String _fold(String s) => s
+    .toLowerCase()
+    .replaceAll(RegExp(r'[àáâãä]'), 'a')
+    .replaceAll(RegExp(r'[èéêë]'), 'e')
+    .replaceAll(RegExp(r'[ìíîï]'), 'i')
+    .replaceAll(RegExp(r'[òóôõö]'), 'o')
+    .replaceAll(RegExp(r'[ùúûü]'), 'u')
+    .replaceAll('ñ', 'n');
 
 bool _listOfRoutines(List<Object?> list) =>
     list.isNotEmpty && list.every((e) => e is Map<Object?, Object?> && _value(e, _listKeys) is List);
@@ -163,15 +227,19 @@ List<Object?>? _routineList(Map<Object?, Object?> map) {
 
 Object? _decode(String raw) {
   for (final text in _candidates(raw)) {
-    try {
-      final data = jsonDecode(text);
-      if (data is Map || data is List) return data;
-    } catch (_) {
-      continue;
+    for (final candidate in [text, _withoutTrailingCommas(text)]) {
+      try {
+        final data = jsonDecode(candidate);
+        if (data is Map || data is List) return data;
+      } catch (_) {
+        continue;
+      }
     }
   }
   return null;
 }
+
+String _withoutTrailingCommas(String text) => text.replaceAll(RegExp(r',\s*([}\]])'), r'$1');
 
 List<String> _candidates(String raw) {
   final text = raw.trim();
@@ -316,10 +384,37 @@ List<PlanSet> _planSets(Object? raw, bool lb) {
   return out;
 }
 
+({String name, List<String> aliases}) _splitAliases(String raw) {
+  final s = raw.trim();
+  final m = RegExp(r'^(.*?)\s*[\(\[\{]([^)\]\}]+)[\)\]\}]\s*$').firstMatch(s);
+  if (m == null) return (name: s, aliases: const <String>[]);
+  final main = m.group(1)!.trim();
+  final alias = m.group(2)!.trim();
+  if (main.isEmpty || alias.isEmpty) return (name: s, aliases: const <String>[]);
+  return (
+    name: main,
+    aliases: [
+      for (final a in alias.split(RegExp(r'[,/;]')))
+        if (a.trim().isNotEmpty) a.trim(),
+    ],
+  );
+}
+
 List<PlanItem> _items(Object? raw, bool lb) {
-  if (raw is! List) return const [];
+  final list = raw is List
+      ? raw
+      : raw is Map<Object?, Object?>
+          ? [
+              for (final e in raw.entries)
+                if (e.value is Map<Object?, Object?>)
+                  <Object?, Object?>{'name': e.key.toString(), ...(e.value as Map<Object?, Object?>)}
+                else
+                  <Object?, Object?>{'name': e.key.toString(), 'sets': e.value},
+            ]
+          : null;
+  if (list == null) return const [];
   final out = <PlanItem>[];
-  for (final entry in raw) {
+  for (final entry in list) {
     if (entry is String) {
       final s = entry.trim();
       if (s.isEmpty) continue;
@@ -339,21 +434,46 @@ List<PlanItem> _items(Object? raw, bool lb) {
           for (var i = 0; i < (sets ?? 3); i++)
             PlanSet(reps: reps),
         ];
-        out.add(PlanItem(cleanName.isNotEmpty ? cleanName : s, sets, reps: reps, plan: plan));
+        final parsed = _splitAliases(cleanName.isNotEmpty ? cleanName : s);
+        out.add(PlanItem(parsed.name, sets, reps: reps, plan: plan, aliases: parsed.aliases));
         continue;
       }
-      out.add(PlanItem(s, null));
+      final parsed = _splitAliases(s);
+      out.add(PlanItem(parsed.name, null, aliases: parsed.aliases));
       continue;
     }
     if (entry is! Map<Object?, Object?>) continue;
-    final name = _string(_value(entry, _itemNameKeys));
+    final rawName = _string(_value(entry, _itemNameKeys));
     final id = _string(_value(entry, ['id', 'exerciseid']));
-    if (name.isEmpty && id.isEmpty) continue;
+    if (rawName.isEmpty && id.isEmpty) continue;
+    final split = _splitAliases(rawName);
+    final name = split.name;
     final itemLb = lb || _isLb(_value(entry, ['unit', 'units'])) || _value(entry, ['lbs', 'lb']) != null;
-    final custom = _value(entry, ['custom', 'own', 'details']);
+    final custom = _value(entry, ['custom', 'own', 'details', 'metadata', 'meta', 'attributes']);
     final info = custom is Map<Object?, Object?> ? custom : const <Object?, Object?>{};
     final meta = <Object?, Object?>{...entry, ...info};
-    final steps = _value(meta, ['steps', 'howto', 'pasos', 'instructions']);
+    final stepsRaw = _value(meta, ['steps', 'howto', 'pasos', 'instructions']);
+    final steps = switch (stepsRaw) {
+      final List list => list.whereType<String>().toList(),
+      final String s when s.trim().isNotEmpty => [s.trim()],
+      _ => const <String>[],
+    };
+    final secondary = switch (_value(meta, ['secondary', 'secondarymuscles'])) {
+      final List list => list.whereType<String>().toList(),
+      final String s when s.trim().isNotEmpty => [
+          for (final a in s.split(RegExp(r'[,/;]')))
+            if (a.trim().isNotEmpty) a.trim(),
+        ],
+      _ => const <String>[],
+    };
+    final parsedAliases = switch (_value(meta, ['aliases', 'alias', 'alsoknownas', 'aka', 'altnames', 'nombresalternativos', 'tambinsellama'])) {
+      final List list => list.whereType<String>().toList(),
+      final String s when s.trim().isNotEmpty => [
+          for (final a in s.split(RegExp(r'[,/;]')))
+            if (a.trim().isNotEmpty) a.trim(),
+        ],
+      _ => const <String>[],
+    };
     final superset = _value(entry, ['superset', 'supersetwithnext', 'linked', 'chain']);
     final sets = _int(_value(entry, _setKeys));
     final reps = _reps(_value(entry, _repKeys));
@@ -383,17 +503,10 @@ List<PlanItem> _items(Object? raw, bool lb) {
       equipment: _string(_value(meta, ['equipment', 'material', 'gear'])),
       level: _string(_value(meta, ['level', 'difficulty', 'nivel'])),
       category: _string(_value(meta, ['category', 'categoria'])),
-      steps: steps is List ? steps.whereType<String>().toList() : const [],
+      steps: steps,
       mode: _string(_value(meta, ['track', 'mode'])),
-      secondary: switch (_value(meta, ['secondary', 'secondarymuscles'])) {
-        final List list => list.whereType<String>().toList(),
-        _ => const [],
-      },
-      aliases: switch (_value(meta, ['aliases', 'alias', 'alsoknownas', 'aka', 'altnames', 'nombresalternativos', 'tambinsellama'])) {
-        final List list => list.whereType<String>().toList(),
-        final String s when s.trim().isNotEmpty => [s.trim()],
-        _ => const [],
-      },
+      secondary: secondary,
+      aliases: [...split.aliases, ...parsedAliases],
       ladder: switch (_value(entry, ['progression', 'ladder', 'progresion', 'progressao', 'progressione'])) {
         final List list => [for (final s in list.whereType<String>()) if (s.trim().isNotEmpty) s.trim()],
         _ => const [],
@@ -436,15 +549,15 @@ List<PlanItem> _mergeRepeats(List<PlanItem> items) {
       restSec: first.restSec ?? item.restSec,
       superset: first.superset || item.superset,
       plan: plan,
-      muscle: first.muscle,
-      equipment: first.equipment,
-      level: first.level,
-      category: first.category,
-      steps: first.steps,
-      mode: first.mode,
-      secondary: first.secondary,
-      aliases: first.aliases,
-      ladder: first.ladder,
+      muscle: first.muscle ?? item.muscle,
+      equipment: first.equipment ?? item.equipment,
+      level: first.level ?? item.level,
+      category: first.category ?? item.category,
+      steps: first.steps.isNotEmpty ? first.steps : item.steps,
+      mode: first.mode.isNotEmpty ? first.mode : item.mode,
+      secondary: first.secondary.isNotEmpty ? first.secondary : item.secondary,
+      aliases: [...first.aliases, ...item.aliases],
+      ladder: first.ladder.isNotEmpty ? first.ladder : item.ladder,
     );
   }
   return out;

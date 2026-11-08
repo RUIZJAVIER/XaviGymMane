@@ -1,7 +1,37 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'local_store.dart';
+
+/// Adjunto leído a bytes locales para el payload multimodal.
+class AiAttachment {
+  const AiAttachment({required this.name, required this.mime, this.path, this.bytes});
+  final String name;
+  final String mime;
+  final String? path;
+  final Uint8List? bytes;
+
+  Future<Uint8List?> readBytes() async {
+    if (bytes != null) return bytes;
+    if (path == null || path!.isEmpty) return null;
+    try {
+      final file = File(path!);
+      return file.existsSync() ? await file.readAsBytes() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Mensaje de chat; cuando hay adjunto, `attachments` se convierte en
+/// `content` multimodal (texto + imagen/PDF en Base64).
+class AiMessage {
+  const AiMessage({required this.role, required this.content, this.attachments = const []});
+  final String role;
+  final String content;
+  final List<AiAttachment> attachments;
+}
 
 class AiClient {
   AiClient._();
@@ -79,10 +109,10 @@ Cuando el usuario te salude o te pida empezar, salúdale con entusiasmo y pregú
    - En el compuesto PRINCIPAL puedes añadir "warmup": 1 para serie de aproximación.
    - NUNCA el mismo ejercicio pesado como calentamiento de sí mismo.
 4. FORMATO DE EXPORTACIÓN JSON: Por CADA sesión, imprime un bloque <routine> separado.
-5. ESTRUCTURA DEL JSON: Cada ejercicio es un objeto con "name", "sets", "reps", opcionalmente "warmup": 1, "rest" y "kind". Incluye OBLIGATORIAMENTE en todos los ejercicios estos campos (aunque ya existan; la app reutiliza el ID y no duplica): "aliases" (traducción al inglés y sinónimos comunes), "target_muscle" (chest, shoulders, biceps, abdomen, obliques, quads, forearm, trapezius, back, lowerback, triceps, glutes, hamstrings, calves), "equipment" (Barbell, Dumbbell, Cable, Machine, Bodyweight, Weighted, Band, Kettlebell, Rings, Other), "category" (strength, calisthenics, cardio, stretch, sport), "level" (Beginner, Intermediate, Advanced), "steps" (1-5 pasos), "mode" ("" para fuerza, "cardio" o "time") y "secondary" (ids de músculos secundarios, puede ser []). PROHIBIDO responder con texto, advertencias, dudas o preguntas cuando un ejercicio no exista o no lo conozcas: inclúyelo en el JSON con todos los metadatos y no lo omitas. El JSON raíz incluye "name", "group" y "days" (arreglo de enteros, 1=Lun…7=Dom). El primer ejercicio debe ser el calentamiento dinámico.
+5. ESTRUCTURA DEL JSON: Cada ejercicio es un objeto con "name" (nombre principal en español, ej. "Remo con mancuerna"), "sets", "reps", opcionalmente "warmup": 1, "rest" y "kind". Incluye OBLIGATORIAMENTE en todos los ejercicios estos campos (aunque ya existan; la app reutiliza el ID y no duplica): "aliases" (OBLIGATORIO: traducción al inglés y sinónimos, ej. ["Dumbbell Row", "Single Arm Row"]), "target_muscle" (chest, shoulders, biceps, abdomen, obliques, quads, forearm, trapezius, back, lowerback, triceps, glutes, hamstrings, calves), "equipment" (Barbell, Dumbbell, Cable, Machine, Bodyweight, Weighted, Band, Kettlebell, Rings, Other), "category" (strength, calisthenics, cardio, stretch, sport), "level" (Beginner, Intermediate, Advanced), "steps" (1-5 pasos), "mode" ("" para fuerza, "cardio" o "time") y "secondary" (ids de músculos secundarios, puede ser []). PROHIBIDO responder con texto, advertencias, dudas o preguntas cuando un ejercicio no exista o no lo conozcas: inclúyelo en el JSON con todos los metadatos y no lo omitas. El JSON raíz incluye "name", "group" y "days" (arreglo de enteros, 1=Lun…7=Dom). El primer ejercicio debe ser el calentamiento dinámico.
 Ejemplo exacto: 
-<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Arm Circles", "sets": 2, "reps": 15, "rest": 30, "target_muscle": "shoulders", "equipment": "Bodyweight", "category": "calisthenics"}, {"name": "Dumbbell Bench Press", "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90, "target_muscle": "chest", "equipment": "Dumbbell", "category": "strength"}, {"name": "One-Arm Dumbbell Row", "sets": 3, "reps": 10, "rest": 60, "target_muscle": "back", "equipment": "Dumbbell", "category": "strength"}]}</routine>
-Ejemplo de ejercicio nuevo: {"name": "Zercher Squat con banda", "sets": 3, "reps": 10, "rest": 60, "aliases": ["Band Zercher Squat", "Sentadilla Zercher con banda"], "target_muscle": "quads", "equipment": "Band", "category": "strength", "level": "Intermediate", "steps": ["Pisa la banda con los pies", "Sujeta la banda a la altura del pecho", "Haz sentadilla manteniendo el torso erguido"], "mode": "", "secondary": ["glutes", "abdomen"]}
+<routine>{"name": "Día 1 - Torso", "group": "Torso", "days": [1, 4], "exercises": [{"name": "Círculos de brazos", "aliases": ["Arm Circles"], "sets": 2, "reps": 15, "rest": 30, "target_muscle": "shoulders", "equipment": "Bodyweight", "category": "calisthenics"}, {"name": "Press de banca con mancuernas", "aliases": ["Dumbbell Bench Press"], "sets": 3, "reps": "8-12", "warmup": 1, "rest": 90, "target_muscle": "chest", "equipment": "Dumbbell", "category": "strength"}, {"name": "Remo con mancuerna a una mano", "aliases": ["One-Arm Dumbbell Row", "Single Arm Row"], "sets": 3, "reps": 10, "rest": 60, "target_muscle": "back", "equipment": "Dumbbell", "category": "strength"}]}</routine>
+Ejemplo de ejercicio nuevo: {"name": "Sentadilla Zercher con banda", "sets": 3, "reps": 10, "rest": 60, "aliases": ["Band Zercher Squat", "Zercher Squat"], "target_muscle": "quads", "equipment": "Band", "category": "strength", "level": "Intermediate", "steps": ["Pisa la banda con los pies", "Sujeta la banda a la altura del pecho", "Haz sentadilla manteniendo el torso erguido"], "mode": "", "secondary": ["glutes", "abdomen"]}
 En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos; el ejemplo de rutina anterior se abrevia solo para mostrar la estructura de sesión.''';
 
   String get baseUrl => Store.instance.note('ai_base_url')?.trim() ?? defaultBaseUrl;
@@ -153,9 +183,46 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
     return _fallbackSlug(cleanName);
   }
 
+  // shortcut: solo imágenes JPEG/PNG/GIF/WebP y PDFs; otros formatos quedan como nombre.
+  static Future<List<Map<String, Object?>>> _messageParts(AiMessage message) async {
+    final parts = <Map<String, Object?>>[];
+    if (message.content.isNotEmpty) parts.add({'type': 'text', 'text': message.content});
+    for (final att in message.attachments) {
+      final bytes = await att.readBytes();
+      if (bytes == null) continue;
+      if (att.mime.startsWith('image/')) {
+        parts.add({
+          'type': 'image_url',
+          'image_url': {'url': 'data:${att.mime};base64,${base64Encode(bytes)}'},
+        });
+      } else if (att.mime == 'application/pdf') {
+        parts.add({
+          'type': 'file',
+          'file': {
+            'filename': att.name,
+            'file_data': 'data:${att.mime};base64,${base64Encode(bytes)}',
+          },
+        });
+      }
+    }
+    if (parts.isEmpty) return [{'type': 'text', 'text': message.content}];
+    if (parts.length == 1 && parts.first['type'] == 'text') return [{'type': 'text', 'text': message.content}];
+    return parts;
+  }
+
+  static Future<List<Map<String, Object?>>> _toPayloadMessages(List<AiMessage> messages) async => [
+        for (final m in messages)
+          {
+            'role': m.role,
+            'content': (await _messageParts(m)).length == 1 && (await _messageParts(m)).first['type'] == 'text'
+                ? m.content
+                : await _messageParts(m),
+          },
+      ];
+
   /// Sends a conversation history and optional system prompt to an OpenAI-compatible endpoint.
   Future<String> chatCompletion({
-    required List<Map<String, String>> messages,
+    required List<AiMessage> messages,
     String? systemPrompt,
   }) async {
     final key = apiKey.trim();
@@ -181,10 +248,10 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
         ? systemPrompt
         : defaultSystemPrompt;
 
-    final fullMessages = <Map<String, String>>[
+    final fullMessages = <Map<String, Object?>>[
       if (effectiveSystemPrompt.isNotEmpty)
         {'role': 'system', 'content': effectiveSystemPrompt},
-      ...messages,
+      ...await _toPayloadMessages(messages),
     ];
 
     final payload = jsonEncode({
@@ -240,7 +307,7 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
 
   Future<String> testConnection() async {
     try {
-      return await chatCompletion(messages: [{'role': 'user', 'content': 'Di exactamente: "¡Hola! Conexión exitosa. Todo está configurado correctamente."'}]);
+      return await chatCompletion(messages: [AiMessage(role: 'user', content: 'Di exactamente: "¡Hola! Conexión exitosa. Todo está configurado correctamente."')]);
     } catch (e) {
       return 'Error de red o de clave: $e';
     }

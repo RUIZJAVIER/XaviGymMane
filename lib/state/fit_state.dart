@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../widgets/glass.dart';
+import '../catalog/exercise_aliases.dart';
 import '../catalog/exercise_catalog.dart';
 import '../catalog/program_templates.dart';
 import '../l10n/l10n.dart';
@@ -993,29 +994,32 @@ class FitState extends FitCore
     return (added: result.added, missed: result.missed, readable: true);
   }
 
-  // shortcut: los ítems con metadatos exigen nombre o alias exacto; sin fuzzy, actualizar si la IA varía demasiado los nombres.
-  Exercise? _exerciseByExactName(String name) {
-    final key = searchKey(name);
-    return key.isEmpty
-        ? null
-        : allExercises
-            .where((e) => searchKey(e.name) == key || e.aliases.any((a) => searchKey(a) == key))
-            .firstOrNull;
+  // shortcut: compara por tokens ordenados (nombre y aliases); el fuzzy queda para ítems sin metadatos.
+  Exercise? _exerciseByExactName(String name, {List<String> aliases = const []}) {
+    final keys = {sortedKey(name), for (final a in aliases) sortedKey(a)}
+      ..removeWhere((k) => k.isEmpty);
+    if (keys.isEmpty) return null;
+    return allExercises.where((e) {
+      if (keys.contains(sortedKey(e.name))) return true;
+      if (e.aliases.any((a) => keys.contains(sortedKey(a)))) return true;
+      return (kExerciseAliases[e.name] ?? const []).any((a) => keys.contains(sortedKey(a)));
+    }).firstOrNull;
   }
 
   Exercise? _planExercise(PlanItem item, {bool create = false}) {
     final byId = item.id == null ? null : exerciseById(item.id!);
     if (byId != null && (item.name.isEmpty || !isCustom(byId.id) || byId.name == item.name)) return byId;
-    final byName = _exerciseByExactName(item.name);
+    final byName = _exerciseByExactName(item.name, aliases: item.aliases);
     if (byName != null) return byName;
     if ((item.muscle ?? '').isEmpty) {
       final fuzzy = matchExerciseByName(item.name);
       if (fuzzy != null) return fuzzy;
     }
-    if (!create || (item.muscle ?? '').isEmpty) return null;
+    if (!create || item.name.trim().isEmpty) return null;
+    final displayName = guessSpanishName(item.name) ?? item.name;
     final muscle = kMuscles.any((m) => m.id == (item.muscle ?? '').toLowerCase())
         ? item.muscle!.toLowerCase()
-        : (guessMuscle(item.name) ?? 'chest');
+        : (guessMuscle(displayName) ?? guessMuscle(item.aliases.join(' ')) ?? 'chest');
     final gear = kEquipment.firstWhere(
       (e) => e.toLowerCase() == (item.equipment ?? '').toLowerCase(),
       orElse: () => 'Other',
@@ -1025,16 +1029,25 @@ class FitState extends FitCore
       orElse: () => 'Beginner',
     );
     final category = (item.category ?? '').toLowerCase();
+    final aliases = [...item.aliases];
+    if (displayName != item.name &&
+        !aliases.any((a) => sortedKey(a) == sortedKey(item.name))) {
+      aliases.add(item.name);
+    }
+    final english = guessEnglishAlias(displayName);
+    if (english != null && !aliases.any((a) => sortedKey(a) == sortedKey(english))) {
+      aliases.add(english);
+    }
     final id = addCustomExercise(
-        name: item.name,
+        name: displayName,
         primary: muscle,
         equipment: gear,
         difficulty: level,
         steps: item.steps,
         mode: item.mode,
         secondary: item.secondary,
-        aliases: item.aliases,
-        kind: kExerciseKinds.contains(category) ? category : '');
+        aliases: aliases,
+        kind: kExerciseKinds.contains(category) ? category : guessKind(displayName));
     return exerciseById(id);
   }
 
@@ -1044,7 +1057,7 @@ class FitState extends FitCore
     for (final plan in plans) {
       var found = 0;
       for (final item in plan.items) {
-        final known = _planExercise(item) != null || (item.muscle ?? '').isNotEmpty;
+        final known = _planExercise(item) != null || item.name.trim().isNotEmpty;
         if (known) {
           found++;
         } else if (!missed.contains(item.name)) {
@@ -1073,7 +1086,7 @@ class FitState extends FitCore
     for (final item in plan.items) {
       final ex = _planExercise(item);
       if (ex == null) {
-        if ((item.muscle ?? '').isNotEmpty) return false;
+        if (item.name.trim().isNotEmpty) return false;
         continue;
       }
       if (!ids.contains(ex.id)) ids.add(ex.id);
