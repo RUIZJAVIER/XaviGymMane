@@ -427,7 +427,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   }
 
   Future<void> _pickAttachment() async {
-    final kind = await showAppSheet<String>(
+    final kind = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
