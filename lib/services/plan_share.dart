@@ -160,7 +160,7 @@ List<PlanRoutine> parsePlan(String raw) {
   } else if (data is List) {
     addRoutines(data, '');
   }
-  return out.isEmpty ? _parseFlatList(raw) : out;
+  return out;
 }
 
 List<PlanRoutine> _parseFlatList(String raw) {
@@ -401,6 +401,14 @@ List<PlanSet> _planSets(Object? raw, bool lb) {
 }
 
 List<PlanItem> _items(Object? raw, bool lb) {
+  // Un único objeto de ejercicio {"name":..., "sets":...} no es un mapa nombre→detalle.
+  if (raw is Map<Object?, Object?> &&
+      raw.entries.any((e) =>
+          _itemNameKeys.contains(_norm(e.key)) ||
+          _setKeys.contains(_norm(e.key)) ||
+          _repKeys.contains(_norm(e.key)))) {
+    raw = [raw];
+  }
   final list = raw is List
       ? raw
       : raw is Map<Object?, Object?>

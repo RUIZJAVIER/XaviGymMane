@@ -183,7 +183,10 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
     return _fallbackSlug(cleanName);
   }
 
-  // shortcut: solo imágenes JPEG/PNG/GIF/WebP y PDFs; otros formatos quedan como nombre.
+  // shortcut: solo imágenes JPEG/PNG/GIF/WebP y PDFs se envían como binario; el resto va como texto descriptivo.
+  static String _attachmentLabel(String mime) =>
+      mime.startsWith('image/') ? 'Imagen adjunta' : mime == 'application/pdf' ? 'PDF adjunto' : 'Documento adjunto';
+
   static Future<List<Map<String, Object?>>> _messageParts(AiMessage message) async {
     final parts = <Map<String, Object?>>[];
     if (message.content.isNotEmpty) parts.add({'type': 'text', 'text': message.content});
@@ -203,22 +206,24 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
             'file_data': 'data:${att.mime};base64,${base64Encode(bytes)}',
           },
         });
+      } else {
+        // Sin OCR ni subida de binarios: solo avisamos al modelo del adjunto.
+        parts.add({'type': 'text', 'text': '${_attachmentLabel(att.mime)}: ${att.name}'});
       }
     }
-    if (parts.isEmpty) return [{'type': 'text', 'text': message.content}];
     if (parts.length == 1 && parts.first['type'] == 'text') return [{'type': 'text', 'text': message.content}];
     return parts;
   }
 
-  static Future<List<Map<String, Object?>>> _toPayloadMessages(List<AiMessage> messages) async => [
-        for (final m in messages)
-          {
-            'role': m.role,
-            'content': (await _messageParts(m)).length == 1 && (await _messageParts(m)).first['type'] == 'text'
-                ? m.content
-                : await _messageParts(m),
-          },
-      ];
+  static Future<List<Map<String, Object?>>> _toPayloadMessages(List<AiMessage> messages) async {
+    final out = <Map<String, Object?>>[];
+    for (final m in messages) {
+      final parts = await _messageParts(m);
+      final plain = parts.length == 1 && parts.first['type'] == 'text';
+      out.add({'role': m.role, 'content': plain ? m.content : parts});
+    }
+    return out;
+  }
 
   /// Sends a conversation history and optional system prompt to an OpenAI-compatible endpoint.
   Future<String> chatCompletion({

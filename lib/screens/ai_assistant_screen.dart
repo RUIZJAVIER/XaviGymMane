@@ -426,8 +426,6 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     });
   }
 
-  String _attachmentContext(_Attachment att) => '${att.label}: ${att.name}.';
-
   Future<void> _pickAttachment() async {
     final kind = await showAppSheet<String>(
       context: context,
@@ -680,19 +678,21 @@ En tu respuesta, TODOS los ejercicios del bloque deben incluir los nueve campos;
     _scrollToBottom();
 
     try {
+      // Solo el mensaje recién enviado lleva bytes; los adjuntos viejos crecerían cada request.
+      final last = _messages.length - 1;
       final history = <AiMessage>[
-        for (final m in _messages)
-          if (m.role == 'user' || m.role == 'assistant')
+        for (var i = 0; i < _messages.length; i++)
+          if (_messages[i].role == 'user' || _messages[i].role == 'assistant')
             AiMessage(
-              role: m.role,
-              content: m.text,
+              role: _messages[i].role,
+              content: _messages[i].text,
               attachments: [
-                if (m.attachment != null)
+                if (i == last && _messages[i].attachment != null)
                   AiAttachment(
-                    name: m.attachment!.name,
-                    mime: m.attachment!.mime,
-                    path: m.attachment!.path,
-                    bytes: m.attachment!.bytes,
+                    name: _messages[i].attachment!.name,
+                    mime: _messages[i].attachment!.mime,
+                    path: _messages[i].attachment!.path,
+                    bytes: _messages[i].attachment!.bytes,
                   ),
               ],
             ),
